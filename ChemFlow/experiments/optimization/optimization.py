@@ -33,6 +33,7 @@ class Args(Tap):
         "wave_unsup",
         "hj_sup",
         "hj_unsup",
+        "neural_ode"
     ] = "random"  # optimization method
     step_size: float = 0.1  # step size
     relative: bool = False  # relative step size

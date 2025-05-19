@@ -18,7 +18,7 @@ from ChemFlow.src.utils.scores import PROP_FN, MINIMIZE_PROPS
 
 
 def main():
-    prop_to_calculate = "plogp"
+    prop_to_calculate = "qed"
     n_molecules_to_process = 800
     n_exploration_steps = 100
     step_size_magnitude = 2.0
@@ -91,9 +91,9 @@ def main():
                 with torch.no_grad(): # GM.neighboring_search involves model inference
                     generated_neighbors_data, _ = GM.neighboring_search(
                         initial_smile=initial_smile_for_search,
-                        num_vector=neighbor_search_num_vectors,
-                        search_range=neighbor_search_range,
-                        resolution=neighbor_search_resolution
+                        #num_vector=neighbor_search_num_vectors,
+                        #search_range=neighbor_search_range,
+                        #resolution=neighbor_search_resolution
                     )
                 for neighbor_j, neighbor_smiles in enumerate(generated_neighbors_data['SMILES']):
                     current_method_results.append({

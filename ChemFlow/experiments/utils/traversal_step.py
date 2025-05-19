@@ -4,14 +4,15 @@ import numpy as np
 import random
 
 from cd2root import cd2root
-
 cd2root()
 
 from src.utils.scores import *
 from src.vae import load_vae
-from src.pinn.pde import load_wavepde
+from src.pinn.pde import load_wavepde, NeuralODEFunc
 from src.pinn import PropGenerator, VAEGenerator
 from src.predictor import Predictor
+from torchdiffeq import odeint_adjoint as odeint
+
 
 MODES = [
     "random",
@@ -23,33 +24,29 @@ MODES = [
     "wave_unsup",
     "hj_sup",
     "hj_unsup",
+    "neural_ode",
 ]
 
 WAVEPDE_IDX_MAP = {
-    "drd2": 2,
-    "gsk3b": 8,
-    "jnk3": 0,
-    "plogp": 9,
-    "qed": 6,
-    "sa": 9,
-    "uplogp": 1
+    "plogp": 1, "sa": 1, "qed": 1, "drd2": 9, "jnk3": 4, "gsk3b": 0, "uplogp": 1, "1err": 2, "2iik": 4,
 }
 HJPDE_IDX_MAP = {
-    "drd2": 3,
-    "gsk3b": 1,
-    "jnk3": 3,
-    "plogp": 1,
-    "qed": 7,
-    "sa": 1,
-    "uplogp": 1,
+    "plogp": 0, "sa": 0, "qed": 9, "drd2": 2, "jnk3": 3, "gsk3b": 8, "uplogp": 0, "1err": 6, "2iik": 3,
 }
+
+
+def normalize_dz(x: Tensor, step_size=None, relative=False):
+    if step_size is None:
+        return x
+    norm_val = torch.norm(x, dim=-1, keepdim=True)
+    if torch.any(norm_val == 0):
+        return x 
+    if relative:
+        return x * step_size
+    return x / norm_val * step_size
 
 
 class Traversal:
-    """
-    Uniformed class to perform 1 step of traversal in latent space
-    """
-
     method: str
     prop: str
     data_name: str
@@ -57,6 +54,7 @@ class Traversal:
     relative: bool
     minimize: bool
     device: torch.device
+    idx: int # for k_idx or pde_idx
 
     def __init__(
         self,
@@ -66,10 +64,8 @@ class Traversal:
         step_size: float = 0.1,
         relative: bool = True,
         minimize: bool = False,
-        k_idx: int | None = None,  # the index of unsupervised pde to use
-        device: torch.device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        ),
+        k_idx: int | None = None,
+        device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     ):
         self.method = method
         self.prop = prop
@@ -78,6 +74,7 @@ class Traversal:
         self.relative = relative
         self.minimize = minimize
         self.device = device
+        self.idx = 0 # Default
 
         assert self.method in MODES, f"mode must be one of {MODES}"
 
@@ -88,114 +85,127 @@ class Traversal:
             embedding_dim=128,
             device=self.device,
         )
+        for p_vae in self.vae.parameters():
+            p_vae.requires_grad = False
+        self.vae.eval()
 
-        # Generate u_z for random
         if self.method == "random":
-            self.u_z = torch.randn(self.vae.latent_dim, device=self.device)
-            return
+            self.rand_u_z_base = torch.randn(self.vae.latent_dim, device=self.device)
         elif self.method == "random_1d":
-            self.u_z = torch.zeros(self.vae.latent_dim, device=self.device)
-            self.u_z[random.randint(0, self.vae.latent_dim - 1)] = (
-                1 if random.random() < 0.5 else -1
-            )
-            return
+            self.rand_u_z_base = torch.zeros(self.vae.latent_dim, device=self.device)
+            self.rand_u_z_base[random.randint(0, self.vae.latent_dim - 1)] = (1 if random.random() < 0.5 else -1)
+        elif self.method == "chemspace":
+            boundary_np = np.load(f"src/chemspace/boundaries_{self.data_name}/boundary_{self.prop}.npy")
+            self.chemspace_u_z_base = torch.tensor(boundary_np, device=self.device).squeeze()
+        elif self.method == "neural_ode":
+            self.neural_ode_func = NeuralODEFunc(latent_dim=self.vae.latent_dim).to(self.device)
+            checkpoint_path = f"checkpoints/neural_ode/{self.data_name}/{self.prop}/checkpoint.pt"
+            self.neural_ode_func.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
+            for p_node in self.neural_ode_func.parameters():
+                p_node.requires_grad = False
+            self.neural_ode_func.eval()
+            return # Early return for neural_ode as generator setup is different or not needed for traversal step
 
         if self.method in {"limo", "fp", "wave_sup", "hj_sup"}:
-            self.predictor = Predictor(self.dm.max_len * self.dm.vocab_size)
+            self.predictor = Predictor(self.dm.max_len * self.dm.vocab_size).to(self.device)
             self.predictor.load_state_dict(
-                torch.load(
-                    f"checkpoints/prop_predictor/{self.prop}/checkpoint.pt",
-                    map_location=self.device,
-                    weights_only=True,
-                )
+                torch.load(f"checkpoints/prop_predictor/{self.prop}/checkpoint.pt", map_location=self.device)
             )
-            for p in self.predictor.parameters():
-                p.requires_grad = False
+            for p_pred in self.predictor.parameters():
+                p_pred.requires_grad = False
+            self.predictor.eval()
 
-        # LIMO and FP don't need to load the generator
         if self.method in {"limo", "fp"}:
             self.generator = PropGenerator(self.vae, self.predictor).to(self.device)
-            return
-
-        # All the other methods are pde related
-        pde_name = self.method.split("_")[0]
-        if self.method in {"wave_sup", "hj_sup"}:
+        elif self.method in {"wave_sup", "hj_sup"}:
             self.generator = PropGenerator(self.vae, self.predictor).to(self.device)
+            pde_name = self.method.split("_")[0]
             self.pde = load_wavepde(
                 checkpoint=f"checkpoints/{pde_name}pde_prop/{self.data_name}/{self.prop}/checkpoint.pt",
-                generator=self.generator,
-                k=1,
-                device=self.device,
+                generator=self.generator, k=1, device=self.device
             )
-            self.idx = 0
-        else:
+            self.idx = 0 # Supervised usually has k=1
+        elif self.method in {"wave_unsup", "hj_unsup"}:
             self.generator = VAEGenerator(self.vae).to(self.device)
+            pde_name = self.method.split("_")[0]
             self.pde = load_wavepde(
                 checkpoint=f"checkpoints/{pde_name}pde/{self.data_name}/checkpoint.pt",
-                generator=self.generator,
-                k=10,
-                device=self.device,
+                generator=self.generator, k=10, device=self.device
             )
             if k_idx is not None:
                 self.idx = k_idx
             elif pde_name == "wave":
-                self.idx = WAVEPDE_IDX_MAP[self.prop]
+                self.idx = WAVEPDE_IDX_MAP.get(self.prop, 0)
             elif pde_name == "hj":
-                self.idx = HJPDE_IDX_MAP[self.prop]
-            else:
-                raise ValueError(f"Unknown pde {pde_name}")
+                self.idx = HJPDE_IDX_MAP.get(self.prop, 0)
+        
+        if hasattr(self, 'generator'):
+            for p_gen in self.generator.parameters():
+                p_gen.requires_grad = False
+            self.generator.eval()
+        if hasattr(self, 'pde'):
+            for p_pde in self.pde.parameters():
+                p_pde.requires_grad = False
+            self.pde.eval()
+            self.k = self.pde.k
+            self.half_range = self.pde.half_range
 
-        for p in self.pde.parameters():
-            p.requires_grad = False
-
-        self.k = self.pde.k
-        self.half_range = self.pde.half_range
 
     def step(self, z: Tensor, t: int = 0, optimizer=None) -> Tensor:
-        """
-        Perform 1 step of traversal in latent space, return u_z
-
-        When t=0, return 0 tensor
-        """
-        if t == 0:
+        if t == 0 and self.method != "neural_ode":
             return torch.zeros_like(z)
 
-        if self.method in ["random", "random_1d"]:
-            u_z = self.u_z
-            u_z = normalize(u_z, self.step_size, self.relative)
+        u_z_final = torch.zeros_like(z)
+
+        if self.method == "random":
+            u_z_final = normalize_dz(self.rand_u_z_base.clone(), self.step_size, self.relative)
+        elif self.method == "random_1d":
+            u_z_final = normalize_dz(self.rand_u_z_base.clone(), self.step_size, self.relative)
         elif self.method == "chemspace":
-            u_z = self.u_z
-            u_z = normalize(u_z, self.step_size, self.relative)
+            u_z_intermediate = self.chemspace_u_z_base.clone()
             if self.minimize:
-                u_z = -u_z
+                u_z_intermediate = -u_z_intermediate
+            u_z_final = normalize_dz(u_z_intermediate, self.step_size, self.relative)
         elif self.method == "limo":
-            if optimizer is not None:
-                return self.limo_optimizer_step(optimizer, z)
-            z = z.detach().requires_grad_(True)
-            u_z = torch.autograd.grad(self.generator(z).sum(), z)[0]
-            u_z = normalize(u_z, self.step_size, self.relative)
+            z_req_grad = z.detach().clone().requires_grad_(True)
+            prop_val = self.generator(z_req_grad).sum()
+            grad_z = torch.autograd.grad(prop_val, z_req_grad)[0]
+            
+            u_z_intermediate = grad_z
             if self.minimize:
-                u_z = -u_z
+                u_z_intermediate = -u_z_intermediate
+            u_z_final = normalize_dz(u_z_intermediate, self.step_size, self.relative)
         elif self.method == "fp":
-            z = z.detach().requires_grad_(True)
-            u_z = torch.autograd.grad(self.generator(z).sum(), z)[0]
-            u_z = (
-                u_z * self.step_size
-                + torch.randn_like(u_z) * np.sqrt(2 * self.step_size) * 0.1
-            )
+            z_req_grad = z.detach().clone().requires_grad_(True)
+            potential_energy = self.generator(z_req_grad).sum()
+            grad_potential = torch.autograd.grad(potential_energy, z_req_grad)[0]
+            
+            drift = grad_potential
             if self.minimize:
-                u_z = -u_z
-        else:
-            _, u_z = self.pde.inference(self.idx, z, t % self.half_range)
-            u_z = normalize(u_z, self.step_size, self.relative)
-
-        return u_z
-
-    def limo_optimizer_step(self, optimizer, z):
-        optimizer.zero_grad()
-        u = -self.generator(z).sum()
-        if self.minimize:
-            u = -u
-        u.backward()
-        optimizer.step()
-        return z.grad
+                drift = -grad_potential
+            
+            drift_scaled = drift * self.step_size
+            noise = torch.randn_like(z) * np.sqrt(2 * self.step_size) * 0.1 
+            u_z_final = drift_scaled + noise
+        elif self.method == "neural_ode":
+            if t == 0: # For Neural ODE, t=0 means initial state, no step taken yet.
+                 return torch.zeros_like(z)
+            t_span = torch.tensor([0.0, self.step_size], device=self.device, dtype=z.dtype)
+           
+            current_z = z.detach().clone() 
+            with torch.no_grad():
+                # Integrate the ODE for a duration of self.step_size
+                # The trajectory will have 2 points: z(0) and z(self.step_size)
+                z_next_trajectory = odeint(self.neural_ode_func, current_z, t_span, method='rk4', options={'step_size': self.step_size/5.0})
+            z_next = z_next_trajectory[-1]
+            u_z_final = z_next - current_z
+        else: # PDE methods
+            # self.idx is set in __init__ for unsupervised, or is 0 for supervised
+            # t is the discrete step count for the traversal
+            time_for_pde = t % self.half_range 
+            _, u_z_pde = self.pde.inference(self.idx, z, time_for_pde)
+            u_z_intermediate = u_z_pde
+            # PDE training should handle minimization/maximization direction
+            u_z_final = normalize_dz(u_z_intermediate, self.step_size, self.relative)
+            
+        return u_z_final

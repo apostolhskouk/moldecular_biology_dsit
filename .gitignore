@@ -1,0 +1,13 @@
+
+*
+
+!.gitignore
+
+!*/
+!*.py
+!*.md
+
+!*.sh
+
+!*.ipynb
+
