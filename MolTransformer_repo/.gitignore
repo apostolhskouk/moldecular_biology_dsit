@@ -1,0 +1,16 @@
+sbatch_slurm/
+output/
+MolTransformer/log_file.log
+.DS_Store
+MolTransformer/__pycache__/
+/MolTransformer/generative/__pycache__/
+/MolTransformer/model/__pycache__/
+__pycache__/
+MolTransformer/model/utils/__pycache__/
+MolTransformer/model/model_operation/__pycache__/
+MolTransformer.egg-info/
+dist/
+build/
+readme_extension_for_paper2.md
+
+readme_extension_for_paper2.md
