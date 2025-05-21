@@ -47,8 +47,10 @@ class Args(Tap):
         "neural_ode",
         "neural_ode_unsup",
         "latent_stepper",
-        "hybrid_sup_unsup"
+        "hybrid_sup_unsup",
+        "rl_policy"
     ] = "random"  # optimization method
+    rl_action_scale: float = 0.05
     step_size: float = 0.1  # step size
     relative: bool = True  # relative step size
     data_name: str = "zmc"  # data name
@@ -63,8 +65,9 @@ class Args(Tap):
         self.model_name = self.prop + "_" + self.method
         self.model_name += f"_{self.step_size}"
         self.model_name += "_relative" if self.relative else "_absolute"
-
-
+        if self.method == "rl_policy":
+             self.model_name += f"_ascale{self.rl_action_scale}"
+        
 if __name__ == "__main__":
     args = Args().parse_args()
 
@@ -89,7 +92,7 @@ if __name__ == "__main__":
         # k_idx=None, # Or pass if method is wave_unsup/hj_unsup
         alpha_hybrid=args.alpha_hybrid,
         hybrid_unsup_pde_type=args.hybrid_unsup_pde_type,
-        hybrid_unsup_k_idx=args.hybrid_unsup_k_idx
+        hybrid_unsup_k_idx=args.hybrid_unsup_k_idx,
     )
     set_seed(args.seed)
 

@@ -13,6 +13,7 @@ from src.pinn import PropGenerator, VAEGenerator
 from src.predictor import Predictor
 from torchdiffeq import odeint_adjoint as odeint
 from experiments.train_latent_stepper import LatentStepperMLP
+from src.rl_policy import PolicyNetwork
 
 MODES = [
     "random",
@@ -28,6 +29,7 @@ MODES = [
     "neural_ode_unsup",
     "latent_stepper",
     "hybrid_sup_unsup",
+    "rl_policy"
 ]
 
 WAVEPDE_IDX_MAP = {
@@ -58,7 +60,9 @@ class Traversal:
     minimize: bool
     device: torch.device
     idx: int # for k_idx or pde_idx
-
+    policy_net_rl: PolicyNetwork = None # For RL policy
+    
+    
     def __init__(
         self,
         method: str,
@@ -73,6 +77,7 @@ class Traversal:
         hybrid_unsup_pde_type: str = "wave", \
         hybrid_unsup_k_idx: int | None = None, 
     ):
+        self.rl_action_scale = 0.1
         self.method = method
         self.prop = prop
         self.data_name = data_name
@@ -97,8 +102,22 @@ class Traversal:
         for p_vae in self.vae.parameters():
             p_vae.requires_grad = False
         self.vae.eval()
-
-        if self.method == "random":
+        if self.method == "rl_policy":
+            self.policy_net_rl = PolicyNetwork(
+                latent_dim=self.vae.latent_dim, 
+                action_dim=self.vae.latent_dim
+            ).to(self.device)
+            policy_checkpoint_path = f"checkpoints/rl_policy/{self.data_name}/{self.prop}/policy_network_final.pt"
+            try:
+                self.policy_net_rl.load_state_dict(
+                    torch.load(policy_checkpoint_path, map_location=self.device)
+                )
+            except FileNotFoundError:
+                print(f"ERROR: RL Policy checkpoint not found at {policy_checkpoint_path}")
+                raise
+            for p_policy in self.policy_net_rl.parameters(): p_policy.requires_grad = False
+            self.policy_net_rl.eval()
+        elif self.method == "random":
             self.rand_u_z_base = torch.randn(self.vae.latent_dim, device=self.device)
         elif self.method == "random_1d":
             self.rand_u_z_base = torch.zeros(self.vae.latent_dim, device=self.device)
@@ -208,8 +227,17 @@ class Traversal:
         
 
         u_z_final = torch.zeros_like(z)
-
-        if self.method == "random":
+        if self.method == "rl_policy":
+            if t == 0: # No action at initial step for consistency, or could take one
+                return torch.zeros_like(z)
+            with torch.no_grad():
+                mean_action_raw, _ = self.policy_net_rl(z) # Get mean and std
+                
+                action_u_z_scaled = torch.tanh(mean_action_raw) * self.rl_action_scale 
+            u_z_final = action_u_z_scaled
+            return u_z_final
+        
+        elif self.method == "random":
             u_z_final = normalize_dz(self.rand_u_z_base.clone(), self.step_size, self.relative)
         elif self.method == "random_1d":
             u_z_final = normalize_dz(self.rand_u_z_base.clone(), self.step_size, self.relative)
