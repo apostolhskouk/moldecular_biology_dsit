@@ -47,7 +47,7 @@ class Args(Tap):
         "neural_ode",
     ] = "random"  # optimization method
     step_size: float = 0.1  # step size
-    relative: bool = False  # relative step size
+    relative: bool = True  # relative step size
     data_name: str = "zmc"  # data name
     seed: int = 42
     binding_affinity: bool = False

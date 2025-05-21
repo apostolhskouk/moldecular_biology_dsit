@@ -70,11 +70,26 @@ class NeuralODELightning(L.LightningModule):
 
     def calculate_loss(self, trajectory: Tensor, z_initial: Tensor):
         loss = torch.tensor(0.0, device=z_initial.device)
+        
         if self.is_supervised:
             prop_start = self.guidance_generator(trajectory[0])
             prop_end = self.guidance_generator(trajectory[-1])
-            property_change_loss = (prop_end - prop_start).mean()
-            loss = -property_change_loss if not self.minimize_property else property_change_loss
+            
+            # Option 1: Simple maximization/minimization of the end property
+            # This encourages the ODE to reach a good final state, 
+            # implicitly encouraging change from the start.
+            if not self.minimize_property:
+                loss = -prop_end.mean() 
+            else:
+                loss = prop_end.mean()
+
+            # Optional: Add a small penalty if it goes in the wrong direction from start
+            # This can be tuned or removed if it makes training too hard.
+            penalty_factor = 0.1 
+            if not self.minimize_property:
+                loss += penalty_factor * torch.relu(prop_start - prop_end).mean()
+            else:
+                loss += penalty_factor * torch.relu(prop_end - prop_start).mean()
         else:
             decoded_start = self.guidance_generator(trajectory[0])
             decoded_end = self.guidance_generator(trajectory[-1])

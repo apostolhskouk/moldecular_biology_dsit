@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import numpy as np
 from pandarallel import pandarallel
-from src.vae import load_vae, VAE, MolDataModule # Keep VAE import
+from src.vae import load_vae, VAE, MolDataModule
 from src.utils.scores import *
 import torch
 from tqdm import tqdm, trange

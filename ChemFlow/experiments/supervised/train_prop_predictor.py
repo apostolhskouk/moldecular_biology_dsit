@@ -1,6 +1,4 @@
 import os
-#set only one gpu visble
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import pandas as pd
 import numpy as np
 from pandarallel import pandarallel
@@ -36,42 +34,40 @@ from src.predictor import Predictor
 
 class Model(LightningModule):
     def __init__(
-        self,
-        # vae: VAE = None, # VAE no longer directly needed here if predictor input size is fixed
-        predictor_input_dim: int = None, # New argument
-        optimizer: str = "sgd",
-        learning_rate: float = 1e-3,
-        weight_decay: float = 1e-4, # Added weight decay
+        self, vae: VAE = None, optimizer: str = "sgd", learning_rate: float = 1e-3
     ):
         super().__init__()
-        # self.vae = vae # Not storing vae anymore
-        self.predictor_input_dim = predictor_input_dim
-        self.optimizer_name = optimizer # Renamed to avoid conflict
+        self.vae = vae
+        self.optimizer = optimizer
         self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
 
-        self.cls = Predictor(self.predictor_input_dim) # Use predictor_input_dim
+        self.cls = Predictor(vae.max_len * vae.vocab_size)
         self.loss_fn = nn.MSELoss()
 
         self.val_y_hat = []
         self.val_y = []
 
-    def forward(self, z: Tensor): # Input is now z
-        return self.cls(z)
+    def forward(self, x: Tensor):
+        # return self.cls(self.vae.decode(self.vae.encode(x)[0]).exp())
+        return self.cls(x)
 
     def training_step(self, batch, batch_idx):
-        z, y = batch # Batch contains z and y
-        loss = self.loss_fn(self(z).squeeze(), y)
-        self.log("train_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)
+        x, y = batch
+
+        loss = self.loss_fn(self(x).squeeze(), y)
+
+        self.log("train_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        z, y = batch # Batch contains z and y
-        y_hat = self(z).squeeze()
+        x, y = batch
+        y_hat = self(x).squeeze()
+
         loss = self.loss_fn(y_hat, y)
         self.val_y_hat.append(y_hat)
         self.val_y.append(y)
-        self.log("val_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True)
+
+        self.log("val_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
     def on_validation_epoch_start(self) -> None:
@@ -79,201 +75,211 @@ class Model(LightningModule):
         self.val_y.clear()
 
     def on_validation_epoch_end(self) -> None:
+        # Compute linear regression r coefficient
         val_y_hat = torch.cat(self.val_y_hat).flatten().detach().cpu().numpy()
         val_y = torch.cat(self.val_y).flatten().detach().cpu().numpy()
+
         try:
             r = linregress(val_y_hat, val_y).rvalue
         except ValueError:
             r = 0.0
-        self.log("lin_reg_r", r, prog_bar=True, sync_dist=True)
+
+        self.log("lin_reg_r", r, prog_bar=True)
 
     def configure_optimizers(self):
-        if self.optimizer_name == "adamw": # Changed to adamw
-            optimizer = optim.AdamW(self.cls.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
-        elif self.optimizer_name == "sgd":
+        if self.optimizer == "adam":
+            optimizer = optim.AdamW(self.cls.parameters(), lr=self.learning_rate)
+        elif self.optimizer == "sgd":
             optimizer = optim.SGD(
-                self.cls.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay, momentum=0.9
+                self.cls.parameters(), lr=self.learning_rate, weight_decay=1e-2
             )
         else:
-            raise ValueError(f"Optimizer {self.optimizer_name} not supported")
+            raise ValueError(f"Optimizer {self.optimizer} not supported")
 
-        # Using a more common scheduler like ReduceLROnPlateau or CosineAnnealingLR
-        # scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10, 15], gamma=0.1)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.2, patience=3, verbose=True)
-        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "monitor": "lin_reg_r"}}
+        scheduler = optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=[10, 15], gamma=0.1
+        )
+
+        return [optimizer], [scheduler]
 
 
 class PropDataset(LightningDataModule):
     def __init__(
         self,
-        # vae: VAE = None, # No longer needed
-        # dm: MolDataModule = None, # No longer needed
-        prop: str = "plogp",
+        vae: VAE = None,
+        dm: MolDataModule = None,
+        prop: str = "qed",  # this one should be "1err" or "2iik" for binding affinity
         n: int = 110_000,
-        batch_size: int = 1000, # Consider reducing if memory is an issue with z
-        # device=torch.device("cuda" if torch.cuda.is_available() else "cpu"), # Not used here
-        # output_dir: str = "data/processed/prop", # Not used here
+        batch_size: int = 1_000,
+        device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        output_dir: str = "data/processed/prop",
         seed: int = 42,
         binding_affinity: bool = False,
-        latent_dim: int = 1024 # Needed to construct correct file name
     ):
         super().__init__()
-        # self.vae = vae
-        # self.dm = dm
+        self.vae = vae
+        self.dm = dm
         self.prop = prop
         self.n = n
         self.batch_size = batch_size
-        # self.device = device
-        # self.output_dir = Path(output_dir)
+        self.device = device
+        self.output_dir = Path(output_dir)
         self.seed = seed
         self.binding_affinity = binding_affinity
-        self.latent_dim = latent_dim # Store for file naming
 
-        self.save_hyperparameters(ignore=["vae", "dm", "device", "prop_fn", "output_dir"])
+        self.save_hyperparameters(
+            ignore=["vae", "dm", "device", "prop_fn", "output_dir"]
+        )
+
+        # self.id = sha256(self.hparams)
 
     def setup(self, stage=None):
-        # Adjusted file name to match the new output from prepare_random_data.py
-        file_name_base = f"data/interim/props/prop_predictor_latent_z_{self.n}_seed{self.seed}"
-        if self.binding_affinity:
-            file_name_base += "_binding_affinity"
-
-        z_vectors = torch.load(f"{file_name_base}.pt")
-        df_props = pd.read_csv(f"{file_name_base}.csv")
+        file_name = f"data/interim/props/prop_predictor_{self.n}_seed{self.seed}_vae_pde"
 
         if self.binding_affinity:
-            df_props[self.prop] = df_props[self.prop].apply(lambda e: min(e, 0) if pd.notna(e) else np.nan)
-        
-        # Handle potential NaNs from property calculation if molecules were invalid
-        valid_indices = df_props[self.prop].notna()
-        z_vectors = z_vectors[valid_indices]
-        df_props = df_props[valid_indices].reset_index(drop=True)
+            print(f"Binding affinity for {self.prop}")
+            file_name += "_binding_affinity"
 
+        x = torch.load(f"{file_name}.pt")
+        df = pd.read_csv(f"{file_name}.csv")
 
-        self.y_mean = df_props[self.prop].mean()
-        self.y_std = df_props[self.prop].std()
-        if self.y_std == 0: self.y_std = 1.0 # Avoid division by zero if all values are same
+        # Gary: The binding affinity values results in very abnormal sum, so we
+        # replace all positive values with 0
+        if self.binding_affinity:
+            df[self.prop] = df[self.prop].apply(lambda e: min(e, 0))
 
-        print(f"Property: {self.prop}, Original Mean: {self.y_mean:.4f}, Std: {self.y_std:.4f} (from {len(df_props)} valid samples)")
-        y_normalized = (df_props[self.prop].values - self.y_mean) / self.y_std
-        
-        self.dataset = TensorDataset(z_vectors, torch.tensor(y_normalized).float())
-        
-        # Ensure there's enough data for split after NaN removal
-        num_val_samples = max(1, int(len(self.dataset) * (1/11))) # Ensure at least 1 val sample
-        num_train_samples = len(self.dataset) - num_val_samples
+        # normalize the input and target data
+        self.y_mean = df[self.prop].mean()
+        self.y_std = df[self.prop].std()
 
-        if num_train_samples <=0 or num_val_samples <=0:
-            raise ValueError(f"Not enough valid data for property {self.prop} to split into train/val. Train: {num_train_samples}, Val: {num_val_samples}")
+        print(f"{self.prop} mean: {self.y_mean}, std: {self.y_std}")
+        y = (df[self.prop].values - self.y_mean) / self.y_std
+        # y = df[self.prop].values
 
+        # self.dataset = TensorDataset(x, torch.tensor(df[self.prop].values).float())
+        self.dataset = TensorDataset(x, torch.tensor(y).float())
         self.train_dataset, self.val_dataset = torch.utils.data.random_split(
             self.dataset,
-            [num_train_samples, num_val_samples],
+            [10 / 11, 1 / 11],
             generator=torch.Generator().manual_seed(self.seed),
         )
-        print(f"Train samples: {len(self.train_dataset)}, Validation samples: {len(self.val_dataset)}")
-
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=4)
+        return DataLoader(
+            self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.val_dataset, batch_size=self.batch_size, num_workers=4)
-
+        return DataLoader(self.val_dataset, batch_size=self.batch_size)
 
 
 def parse_args():
     parser = LightningArgumentParser()
-    parser.add_argument("-e", "--epochs", type=int, default=50) # Increased epochs
+
+    parser.add_argument(
+        "-e",
+        "--epochs",
+        type=int,
+        default=20,
+    )
     parser.add_argument("-lb", "--load-best", action="store_true")
     parser.add_argument("-tlr", "--tune-learning-rate", action="store_true")
-    parser.add_argument("--wandb-entity", type=str, default=None)
-    
-    # Add predictor_input_dim to model args, it will be set programmatically
+    parser.add_argument(
+        "--wandb-entity",
+        type=str,
+        default=None, 
+        help="Weights & Biases entity (username or organization)",
+    )
     parser.add_lightning_class_args(Model, "model")
     parser.add_lightning_class_args(PropDataset, "data")
-    
+
     args = parser.parse_args()
-    # del args.model.vae # VAE not part of Model.__init__ anymore
+
+    del args.model.vae, args.data.vae, args.data.dm
+
     return args
 
 
 def main():
     args = parse_args()
 
-    # Load VAE just to get its latent_dim for the Model and PropDataset
-    _, vae_for_dim = load_vae(
-        file_path="data/processed/zmc.smi", # Or args.data.smiles_file if you add it
-        model_path="checkpoints/vae/zmc/checkpoint.pt", # Or args.data.vae_path
+    # L.seed_everything(args.seed)
+
+    dm, vae = load_vae(
+        file_path="data/processed/zmc.smi",
+        model_path="checkpoints/vae/zmc/checkpoint.pt",
     )
-    predictor_input_dim = vae_for_dim.latent_dim
-    # Pass latent_dim to PropDataset if it's needed for filename construction
-    args.model.predictor_input_dim = predictor_input_dim
 
-    data_kwargs = vars(args.data)
-
-    # overwrite whatever the CLI gave (or the default) with the real VAE dimension:
-    data_kwargs["latent_dim"] = predictor_input_dim
-
-    # now there's only one latent_dim in the dict:
-    dm_prop = PropDataset(**data_kwargs)
-    # dm_prop.prepare_data() # No prepare_data step in this version
+    dm_prop = PropDataset(vae=vae, dm=dm, **args.data)
+    dm_prop.prepare_data()
     dm_prop.setup()
-    
+
     L.seed_everything(dm_prop.seed)
 
-    model_params_from_cli = vars(args.model)
-    model = Model(**vars(args.model))
+    model = Model(vae=vae, **args.model)
+    # summary(model)
 
-    name = f"{dm_prop.prop}_latent_z_lr{args.model.learning_rate}_wd{args.model.weight_decay}"
-    
-    logger = None
-    if args.wandb_entity:
-        logger = WandbLogger(project="soc_prop_latent_z", entity=args.wandb_entity, name=name)
-
-    trainer = L.Trainer(
-        max_epochs=args.epochs,
-        logger=logger,
-        callbacks=[
-            LearningRateMonitor(logging_interval="epoch"), # Changed to epoch
-            ModelCheckpoint(
-                monitor="lin_reg_r", # Monitor lin_reg_r
-                mode="max",
-                save_top_k=1,
-                save_last=True,
-                save_weights_only=True,
-                dirpath=f"checkpoints/prop_predictor_latent_z/{dm_prop.prop}", # New path
-                filename='best-{epoch}-{lin_reg_r:.3f}'
-            ),
-        ],
-        accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=1
-    )
+    name = f"{dm_prop.prop}-{args.model.learning_rate}"
+    if args.wandb_entity is not None:
+        trainer = L.Trainer(
+            max_epochs=args.epochs,
+            logger=WandbLogger(project="soc_prop", entity=args.wandb_entity, name=name),
+            callbacks=[
+                LearningRateMonitor(logging_interval="step"),
+                ModelCheckpoint(
+                    # monitor="val_loss",
+                    monitor="lin_reg_r",
+                    mode="max",
+                    save_top_k=1,
+                    save_last=True,
+                    save_weights_only=True,
+                    save_on_train_epoch_end=False,
+                    dirpath=f"checkpoints/prop_predictor/{dm_prop.prop}",
+                ),
+                # LearningRateFinder(),
+            ],
+            # val_check_interval=0.25,
+        )
+    else:
+        trainer = L.Trainer(
+            max_epochs=args.epochs,
+            callbacks=[
+                LearningRateMonitor(logging_interval="step"),
+                ModelCheckpoint(
+                    # monitor="val_loss",
+                    monitor="lin_reg_r",
+                    mode="max",
+                    save_top_k=1,
+                    save_last=True,
+                    save_weights_only=True,
+                    save_on_train_epoch_end=False,
+                    dirpath=f"checkpoints/prop_predictor/{dm_prop.prop}",
+                ),
+            ],
+            # val_check_interval=0.25,
+        )
 
     if args.tune_learning_rate:
         tuner = Tuner(trainer)
-        lr_finder_result = tuner.lr_find(model, dm_prop)
-        print(lr_finder_result)
-        args.model.learning_rate = lr_finder_result.suggestion()
-        model.learning_rate = lr_finder_result.suggestion() # Update model's lr
+        tuner.lr_find(model, dm_prop)
 
     trainer.fit(model, datamodule=dm_prop)
 
-    best_model_path = trainer.checkpoint_callback.best_model_path
-    if args.load_best and best_model_path:
-        print(f"Loading best model from: {best_model_path}")
-        # When loading, ensure predictor_input_dim is passed correctly
+    if args.load_best:
         model = Model.load_from_checkpoint(
-            best_model_path,
-            predictor_input_dim=predictor_input_dim,
-            # Strict=False might be needed if hparams saved are slightly different
+            trainer.checkpoint_callback.best_model_path, vae=vae, **args.model
         )
     trainer.validate(model, dm_prop.val_dataloader())
 
-    output_dir = Path("checkpoints/prop_predictor_latent_z") / dm_prop.prop # New path
+    # save model
+    output_dir = Path("checkpoints/prop_predictor") / dm_prop.prop
     output_dir.mkdir(parents=True, exist_ok=True)
     torch.save(model.cls.state_dict(), output_dir / "checkpoint.pt")
-    print(f"Saved final model to {output_dir / 'checkpoint.pt'}")
 
 
 if __name__ == "__main__":
+    # print(torch.cuda.is_initialized())
+    # torch.multiprocessing.set_start_method("spawn")
+    # pandarallel.initialize(nb_workers=os.cpu_count(), progress_bar=True, verbose=2)
+    # print(torch.cuda.is_initialized())
     main()
