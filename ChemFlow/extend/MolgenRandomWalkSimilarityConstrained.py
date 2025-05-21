@@ -67,7 +67,7 @@ def main():
     latent_embed_dim = z_molgen_np_initial.shape[2]
 
     exploration_methods = [
-        "random_walk",
+        #"random_walk",
         #"fixed_random_direction",
         #"fixed_1d_direction",
         "neighboring_search" 
@@ -91,9 +91,9 @@ def main():
                 with torch.no_grad(): # GM.neighboring_search involves model inference
                     generated_neighbors_data, _ = GM.neighboring_search(
                         initial_smile=initial_smile_for_search,
-                        #num_vector=neighbor_search_num_vectors,
-                        #search_range=neighbor_search_range,
-                        #resolution=neighbor_search_resolution
+                        num_vector=neighbor_search_num_vectors,
+                        search_range=neighbor_search_range,
+                        resolution=neighbor_search_resolution
                     )
                 for neighbor_j, neighbor_smiles in enumerate(generated_neighbors_data['SMILES']):
                     current_method_results.append({

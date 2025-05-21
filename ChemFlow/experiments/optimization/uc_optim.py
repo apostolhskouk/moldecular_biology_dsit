@@ -45,6 +45,9 @@ class Args(Tap):
         "hj_sup",
         "hj_unsup",
         "neural_ode",
+        "neural_ode_unsup",
+        "latent_stepper",
+        "hybrid_sup_unsup"
     ] = "random"  # optimization method
     step_size: float = 0.1  # step size
     relative: bool = True  # relative step size
@@ -52,7 +55,10 @@ class Args(Tap):
     seed: int = 42
     binding_affinity: bool = False
     limo: bool = False
-
+    alpha_hybrid: float = 0.5 # Weight for supervised component
+    hybrid_unsup_pde_type: Literal["wave", "hj"] = "wave" # PDE type for unsupervised part
+    hybrid_unsup_k_idx: int = None
+    
     def process_args(self):
         self.model_name = self.prop + "_" + self.method
         self.model_name += f"_{self.step_size}"
@@ -79,63 +85,77 @@ if __name__ == "__main__":
         relative=args.relative,
         minimize=args.prop in MINIMIZE_PROPS or args.binding_affinity,
         device=device,
+        # k_idx is for the main unsupervised methods, not directly for hybrid's unsup part here
+        # k_idx=None, # Or pass if method is wave_unsup/hj_unsup
+        alpha_hybrid=args.alpha_hybrid,
+        hybrid_unsup_pde_type=args.hybrid_unsup_pde_type,
+        hybrid_unsup_k_idx=args.hybrid_unsup_k_idx
     )
-
     set_seed(args.seed)
 
     z0 = torch.randn(args.n, traversal.vae.latent_dim)
 
     print(f"prop: {args.prop}")
 
-    smiles = []
-    # generate all smiles
-    for i in trange(0, args.n, args.batch_size):
-        z = z0[i : i + args.batch_size].to(device)
-
-        optimizer = None
-        if args.method == "limo" and args.limo:
-            z.requires_grad = True
-            optimizer = torch.optim.Adam([z], lr=args.step_size)
+    all_final_smiles = []
+    for i in trange(0, args.n, args.batch_size, desc="Optimizing Batches"):
+        z_batch = z0[i : i + args.batch_size].to(device)
+        
+        # Optimizer for LIMO is not used in this hybrid setup directly
+        # if args.method == "limo" and args.limo:
+        #     z_batch.requires_grad = True
+        #     optimizer = torch.optim.Adam([z_batch], lr=args.step_size) # This was for a specific LIMO variant
 
         for t in range(args.steps):
-            # with torch.no_grad():
-            #     # Only for research purpose
-            #     u = traversal.generator(z)
-            #     print(f"step {t+1} u: {u.sum().item()}")
-            if args.method == "limo" and args.limo:
-                traversal.step(z, t + 1, optimizer=optimizer)
-                continue
-            u_z = traversal.step(z, t + 1)
-            z += u_z
+            # The LIMO optimizer logic was specific and not part of the general step
+            # if args.method == "limo" and args.limo:
+            #     traversal.step(z_batch, t + 1, optimizer=optimizer) # This was for a specific LIMO variant
+            #     continue 
+            u_z_batch = traversal.step(z_batch, t + 1) # t+1 because step 0 is initial state
+            with torch.no_grad(): # Ensure operations on z_batch don't track gradients if not needed
+                z_batch += u_z_batch
+        
         with torch.no_grad():
-            x = traversal.vae.decode(z).exp()
-        smiles.extend(traversal.dm.decode(x))
+            # Decode final z states for the batch
+            # vae.decode returns log_softmax, .exp() is not needed if dm.decode handles log_probs
+            final_x_batch_log_probs = traversal.vae.decode(z_batch)
+        all_final_smiles.extend(traversal.dm.decode(final_x_batch_log_probs))
 
-    df = pd.DataFrame(smiles, columns=["smiles"])
-    df_unique = df.drop_duplicates()
-    if args.binding_affinity:
-        file_name = PROTEIN_FILES[args.prop]
+    df = pd.DataFrame(all_final_smiles, columns=["smiles"])
+    df_unique = df.drop_duplicates().reset_index(drop=True) # Reset index for parallel_apply name access
 
-    def func(_x: pd.Series):
+    # Update chunk_idx for df_unique if its size changed significantly
+    if df_unique.shape[0] > 0 and n_workers > 0:
+         chunk_idx = list(partitionIndexes(df_unique.shape[0], n_workers))[1:]
+    else:
+         chunk_idx = []
+
+
+    def func(_x: pd.Series): # _x is a row from df_unique
+        smiles_str = _x["smiles"]
         if args.binding_affinity:
-            device_idx = bisect.bisect_right(chunk_idx, _x.name)
-            _x[args.prop] = smiles2affinity(
-                _x["smiles"], file_name, device_idx=device_idx
-            )
+            # device_idx logic might need adjustment if df_unique has different indexing
+            # Assuming _x.name is the new index (0 to len(df_unique)-1)
+            device_idx = 0 
+            if chunk_idx: # If there are chunks (i.e. n_workers > 0 and data)
+                 device_idx = bisect.bisect_right(chunk_idx, _x.name) % torch.cuda.device_count() if torch.cuda.is_available() else 0
+
+            _x[args.prop] = smiles2affinity(smiles_str, PROTEIN_FILES.get(args.prop), device_idx=device_idx)
         else:
-            _x[args.prop] = PROP_FN[args.prop](_x["smiles"])
+            _x[args.prop] = PROP_FN[args.prop](smiles_str)
         return _x
 
-    print("Calculating properties, this may take a while...")
-    df_unique = df_unique.parallel_apply(func, axis=1)
+    print(f"Calculating properties for {len(df_unique)} unique SMILES, this may take a while...")
+    if not df_unique.empty:
+        df_unique = df_unique.parallel_apply(func, axis=1)
+        # Merge unique properties back to the original df which has all (potentially duplicate) final SMILES
+        df = df.merge(df_unique, on="smiles", how="left")
+    else:
+        df[args.prop] = np.nan # Add empty column if no unique smiles
 
-    # merge with original df to get the original order
-    df = df.merge(df_unique, on="smiles", how="left")
+    output_path_dir = Path("data/interim/uc_optim") # Renamed for clarity
+    output_path_dir.mkdir(parents=True, exist_ok=True)
+    output_file_path = output_path_dir / f"{args.model_name}.csv"
+    df.to_csv(output_file_path, index=False) # Save without index
 
-    # save results to csv
-    output_path = Path("data/interim/uc_optim")
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    df.to_csv(output_path / f"{args.model_name}.csv")
-
-    print(f"Results saved to {output_path / args.model_name}.csv")
+    print(f"Results saved to {output_file_path}")

@@ -12,7 +12,7 @@ from src.pinn.pde import load_wavepde, NeuralODEFunc
 from src.pinn import PropGenerator, VAEGenerator
 from src.predictor import Predictor
 from torchdiffeq import odeint_adjoint as odeint
-
+from experiments.train_latent_stepper import LatentStepperMLP
 
 MODES = [
     "random",
@@ -25,6 +25,9 @@ MODES = [
     "hj_sup",
     "hj_unsup",
     "neural_ode",
+    "neural_ode_unsup",
+    "latent_stepper",
+    "hybrid_sup_unsup",
 ]
 
 WAVEPDE_IDX_MAP = {
@@ -66,6 +69,9 @@ class Traversal:
         minimize: bool = False,
         k_idx: int | None = None,
         device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+        alpha_hybrid: float = 0.5, # Weight for supervised component in hybrid mode
+        hybrid_unsup_pde_type: str = "wave", \
+        hybrid_unsup_k_idx: int | None = None, 
     ):
         self.method = method
         self.prop = prop
@@ -75,7 +81,10 @@ class Traversal:
         self.minimize = minimize
         self.device = device
         self.idx = 0 # Default
-
+        self.alpha_hybrid = alpha_hybrid
+        self.hybrid_unsup_pde_type = hybrid_unsup_pde_type
+        self.unsupervised_k_idx_for_hybrid = 0 # Default, will be set below
+        
         assert self.method in MODES, f"mode must be one of {MODES}"
 
         self.dm, self.vae = load_vae(
@@ -104,9 +113,23 @@ class Traversal:
             for p_node in self.neural_ode_func.parameters():
                 p_node.requires_grad = False
             self.neural_ode_func.eval()
-            return # Early return for neural_ode as generator setup is different or not needed for traversal step
-
-        if self.method in {"limo", "fp", "wave_sup", "hj_sup"}:
+            return
+        elif self.method == "neural_ode_unsup":
+            self.neural_ode_func = NeuralODEFunc(latent_dim=self.vae.latent_dim).to(self.device)
+            checkpoint_path = f"checkpoints/neural_ode_unsup/{self.data_name}/{self.prop}/checkpoint.pt"
+            self.neural_ode_func.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
+            for p_node in self.neural_ode_func.parameters():
+                p_node.requires_grad = False
+            self.neural_ode_func.eval()
+            return
+        elif self.method == "latent_stepper":
+            self.stepper_mlp = LatentStepperMLP(latent_dim=self.vae.latent_dim) # Add hidden_dims, dropout from args if needed
+            stepper_checkpoint_path = f"checkpoints/latent_stepper/{self.data_name}/{self.prop}/stepper_mlp.pt"
+            self.stepper_mlp.load_state_dict(torch.load(stepper_checkpoint_path, map_location=self.device))
+            self.stepper_mlp.to(self.device)
+            self.stepper_mlp.eval()
+            
+        if self.method in {"limo", "fp", "wave_sup", "hj_sup", "hybrid_sup_unsup"}:
             self.predictor = Predictor(self.dm.max_len * self.dm.vocab_size).to(self.device)
             self.predictor.load_state_dict(
                 torch.load(f"checkpoints/prop_predictor/{self.prop}/checkpoint.pt", map_location=self.device)
@@ -138,7 +161,35 @@ class Traversal:
                 self.idx = WAVEPDE_IDX_MAP.get(self.prop, 0)
             elif pde_name == "hj":
                 self.idx = HJPDE_IDX_MAP.get(self.prop, 0)
-        
+        elif self.method == "hybrid_sup_unsup":
+            # Supervised part (LIMO-like gradient flow for simplicity, or could be wave_sup/hj_sup)
+            self.generator_sup_hybrid = PropGenerator(self.vae, self.predictor).to(self.device)
+            for p_gen in self.generator_sup_hybrid.parameters(): p_gen.requires_grad = False
+            self.generator_sup_hybrid.eval()
+            
+            # Unsupervised part (e.g., wave_unsup)
+            self.generator_unsup_hybrid = VAEGenerator(self.vae).to(self.device)
+            unsup_pde_checkpoint = f"checkpoints/{self.hybrid_unsup_pde_type}pde/{self.data_name}/checkpoint.pt"
+            self.pde_unsup_hybrid = load_wavepde(
+                checkpoint=unsup_pde_checkpoint,
+                generator=self.generator_unsup_hybrid, k=10, device=self.device
+            )
+            for p_pde in self.pde_unsup_hybrid.parameters(): p_pde.requires_grad = False
+            self.pde_unsup_hybrid.eval()
+            self.k_unsup_hybrid = self.pde_unsup_hybrid.k
+            self.half_range_unsup_hybrid = self.pde_unsup_hybrid.half_range
+            
+            # Determine k_idx for the unsupervised part of hybrid
+            if hybrid_unsup_k_idx is not None:
+                 self.unsupervised_k_idx_for_hybrid = hybrid_unsup_k_idx
+            elif self.hybrid_unsup_pde_type == "wave":
+                self.unsupervised_k_idx_for_hybrid = WAVEPDE_IDX_MAP.get(self.prop, 0) 
+            elif self.hybrid_unsup_pde_type == "hj":
+                self.unsupervised_k_idx_for_hybrid = HJPDE_IDX_MAP.get(self.prop, 0)
+            else: # Default if type is unknown, though should be validated
+                self.unsupervised_k_idx_for_hybrid = 0
+            print(f"Hybrid mode using unsupervised k_idx: {self.unsupervised_k_idx_for_hybrid} for {self.hybrid_unsup_pde_type} PDE.")
+            
         if hasattr(self, 'generator'):
             for p_gen in self.generator.parameters():
                 p_gen.requires_grad = False
@@ -152,8 +203,9 @@ class Traversal:
 
 
     def step(self, z: Tensor, t: int = 0, optimizer=None) -> Tensor:
-        if t == 0 and self.method != "neural_ode":
+        if t == 0 and self.method != "neural_ode" and self.method != "latent_stepper": 
             return torch.zeros_like(z)
+        
 
         u_z_final = torch.zeros_like(z)
 
@@ -175,6 +227,14 @@ class Traversal:
             if self.minimize:
                 u_z_intermediate = -u_z_intermediate
             u_z_final = normalize_dz(u_z_intermediate, self.step_size, self.relative)
+        elif self.method == "latent_stepper":
+            with torch.no_grad():
+                delta_z = self.stepper_mlp(z)
+            u_z_intermediate = delta_z
+            if self.minimize:
+                pass 
+
+            u_z_final = normalize_dz(u_z_intermediate, self.step_size, self.relative)
         elif self.method == "fp":
             z_req_grad = z.detach().clone().requires_grad_(True)
             potential_energy = self.generator(z_req_grad).sum()
@@ -187,7 +247,7 @@ class Traversal:
             drift_scaled = drift * self.step_size
             noise = torch.randn_like(z) * np.sqrt(2 * self.step_size) * 0.1 
             u_z_final = drift_scaled + noise
-        elif self.method == "neural_ode":
+        elif self.method == "neural_ode" or self.method == "neural_ode_unsup":
             if t == 0: # For Neural ODE, t=0 means initial state, no step taken yet.
                  return torch.zeros_like(z)
             t_span = torch.tensor([0.0, self.step_size], device=self.device, dtype=z.dtype)
@@ -199,6 +259,24 @@ class Traversal:
                 z_next_trajectory = odeint(self.neural_ode_func, current_z, t_span, method='rk4', options={'step_size': self.step_size/5.0})
             z_next = z_next_trajectory[-1]
             u_z_final = z_next - current_z
+        elif self.method == "hybrid_sup_unsup":
+            # Supervised component (LIMO-like gradient)
+            z_req_grad_sup = z.detach().clone().requires_grad_(True)
+            prop_val_sup = self.generator_sup_hybrid(z_req_grad_sup).sum()
+            u_z_sup = torch.autograd.grad(prop_val_sup, z_req_grad_sup, retain_graph=False)[0]
+            if self.minimize: u_z_sup = -u_z_sup
+            u_z_sup_normalized = normalize_dz(u_z_sup, self.step_size, self.relative)
+
+            # Unsupervised component (e.g., wave_unsup)
+            time_for_unsup_pde = t % self.half_range_unsup_hybrid
+            # Use the k_idx determined for the hybrid's unsupervised part
+            _, u_z_unsup_raw = self.pde_unsup_hybrid.inference(self.unsupervised_k_idx_for_hybrid, z, time_for_unsup_pde)
+            u_z_unsup_normalized = normalize_dz(u_z_unsup_raw, self.step_size, self.relative)
+            
+            # Combine: alpha for supervised, (1-alpha) for unsupervised
+            u_z_final = self.alpha_hybrid * u_z_sup_normalized + (1.0 - self.alpha_hybrid) * u_z_unsup_normalized
+            # Final normalization of the combined vector (optional, but good for consistent step magnitude)
+            u_z_final = normalize_dz(u_z_final, self.step_size, self.relative)
         else: # PDE methods
             # self.idx is set in __init__ for unsupervised, or is 0 for supervised
             # t is the discrete step count for the traversal

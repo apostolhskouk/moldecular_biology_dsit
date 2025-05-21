@@ -71,37 +71,38 @@ class NeuralODELightning(L.LightningModule):
     def calculate_loss(self, trajectory: Tensor, z_initial: Tensor):
         loss = torch.tensor(0.0, device=z_initial.device)
         
-        if self.is_supervised:
-            prop_start = self.guidance_generator(trajectory[0])
-            prop_end = self.guidance_generator(trajectory[-1])
-            
-            # Option 1: Simple maximization/minimization of the end property
-            # This encourages the ODE to reach a good final state, 
-            # implicitly encouraging change from the start.
-            if not self.minimize_property:
-                loss = -prop_end.mean() 
-            else:
-                loss = prop_end.mean()
+        z_start_traj = trajectory[0]
+        z_end_traj = trajectory[-1]
 
-            # Optional: Add a small penalty if it goes in the wrong direction from start
-            # This can be tuned or removed if it makes training too hard.
-            penalty_factor = 0.1 
+        t_start_val = 0.0
+        t_end_val = self.integration_time_step
+
+        if self.is_supervised:
+            prop_start = self.guidance_generator(z_start_traj)
+            prop_end = self.guidance_generator(z_end_traj)
+            
+            property_change = prop_end - prop_start
             if not self.minimize_property:
-                loss += penalty_factor * torch.relu(prop_start - prop_end).mean()
+                loss = -property_change.mean()
             else:
-                loss += penalty_factor * torch.relu(prop_end - prop_start).mean()
+                loss = property_change.mean()
         else:
-            decoded_start = self.guidance_generator(trajectory[0])
-            decoded_end = self.guidance_generator(trajectory[-1])
+            decoded_start = self.guidance_generator(z_start_traj)
+            decoded_end = self.guidance_generator(z_end_traj)
             structural_change_loss = -torch.nn.functional.mse_loss(decoded_end, decoded_start.detach())
             loss = structural_change_loss
         
         if self.flow_reg_lambda > 0:
-            t_sample_for_reg = torch.rand(z_initial.size(0), device=z_initial.device) * self.integration_time_step
-            z_sample_for_reg = trajectory[0].detach() # Or interpolate along trajectory
-            dz_dt_sample = self.neural_ode_func(t_sample_for_reg, z_sample_for_reg)
-            flow_reg = torch.norm(dz_dt_sample, p=2, dim=-1).mean()
+            t_start_tensor = torch.full((z_initial.size(0),), t_start_val, device=z_initial.device, dtype=z_initial.dtype)
+            t_end_tensor = torch.full((z_initial.size(0),), t_end_val, device=z_initial.device, dtype=z_initial.dtype)
+
+            dz_dt_at_start = self.neural_ode_func(t_start_tensor, z_start_traj)
+            dz_dt_at_end = self.neural_ode_func(t_end_tensor, z_end_traj)
+            
+            flow_reg = (torch.norm(dz_dt_at_start, p=2, dim=-1).mean() + \
+                        torch.norm(dz_dt_at_end, p=2, dim=-1).mean()) / 2.0
             loss += self.flow_reg_lambda * flow_reg
+            
         return loss
 
     def training_step(self, batch: tuple[Tensor], batch_idx: int):
@@ -177,9 +178,8 @@ def main_train_neural_ode():
     for p_guidance in guidance_gen.parameters(): p_guidance.requires_grad = False
     guidance_gen.eval()
 
-    model_specific_params = vars(args.model_params).copy() # Use .copy() to avoid modifying the original args
+    model_specific_params = vars(args.model_params).copy() 
 
-    # Remove keys that are being passed explicitly to avoid TypeError
     explicitly_passed_keys = ['latent_dim', 'guidance_generator', 'is_supervised', 'minimize_property']
     for key in explicitly_passed_keys:
         if key in model_specific_params:
@@ -190,7 +190,7 @@ def main_train_neural_ode():
         guidance_generator=guidance_gen,
         is_supervised=args.is_supervised,
         minimize_property=args.minimize_property,
-        **model_specific_params # Now this won't have the conflicting keys
+        **model_specific_params 
     ).to(device)
     
     trainer = L.Trainer(
@@ -208,11 +208,11 @@ def main_train_neural_ode():
     if best_model_path_ckpt:
         loaded_model = NeuralODELightning.load_from_checkpoint(
             best_model_path_ckpt,
-            latent_dim=vae.latent_dim, # Need to pass these again if not in hparams of checkpoint
+            latent_dim=vae.latent_dim, 
             guidance_generator=guidance_gen,
         )
         torch.save(loaded_model.neural_ode_func.state_dict(), output_path / "checkpoint.pt")
-    else: # Save last if best is not found (e.g. KeyboardInterrupt)
+    else: 
         torch.save(lightning_model.neural_ode_func.state_dict(), output_path / "checkpoint.pt")
 
 
