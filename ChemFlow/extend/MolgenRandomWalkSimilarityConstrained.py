@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from accelerate.utils import set_seed
-
+import argparse
 import os
 import random
 from pathlib import Path
@@ -18,7 +18,16 @@ from ChemFlow.src.utils.scores import PROP_FN, MINIMIZE_PROPS
 
 
 def main():
-    prop_to_calculate = "qed"
+    parser = argparse.ArgumentParser(description="Run molecular optimization for a specified property.")
+    parser.add_argument(
+        "prop_to_calculate", 
+        type=str,
+        default="qed",
+        help="The property to calculate and optimize (e.g., 'qed', 'logp')."
+    )
+    args = parser.parse_args()
+    prop_to_calculate = args.prop_to_calculate
+    
     n_molecules_to_process = 800
     n_exploration_steps = 100
     step_size_magnitude = 2.0
@@ -27,8 +36,8 @@ def main():
     neighbor_search_range = 20.0      
     neighbor_search_resolution = 0.05 
 
-    data_file_path = "data/interim/props/zinc250k.csv"
-    output_dir_base = Path("/data/hdd1/users/akouk/moldecular_biology_dsit/ChemFlow/extend/optimization_results_molgen_truncated_100steps") 
+    data_file_path = "ChemFlow/data/interim/props/zinc250k.csv"
+    output_dir_base = Path("ChemFlow/extend/optimization_results_molgen_truncated_100steps") 
 
     pandarallel.initialize(nb_workers=os.cpu_count(), progress_bar=True, verbose=0)
     
@@ -67,7 +76,7 @@ def main():
     latent_embed_dim = z_molgen_np_initial.shape[2]
 
     exploration_methods = [
-        #"random_walk",
+        "random_walk",
         #"fixed_random_direction",
         #"fixed_1d_direction",
         "neighboring_search" 

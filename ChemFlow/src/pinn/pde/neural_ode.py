@@ -1,6 +1,6 @@
 import torch
 from torch import nn, Tensor
-from src.pinn.pde.pde import SinusoidalPositionEmbeddings
+from ChemFlow.src.pinn.pde.pde import SinusoidalPositionEmbeddings
 
 class NeuralODEFunc(nn.Module):
     def __init__(self, latent_dim: int, time_embedding_dim: int = 128, hidden_dim: int = 512, num_layers: int = 3):
