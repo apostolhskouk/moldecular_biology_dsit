@@ -118,7 +118,7 @@ if __name__ == "__main__":
         )
 
         # load and scale properties
-        df = pd.read_csv("data/interim/props/zinc250k.csv")[
+        df = pd.read_csv("ChemFlow/data/interim/props/zinc250k.csv")[
             ["smiles", args.prop1, args.prop2]
         ]
         df[args.prop1] = (
@@ -179,7 +179,7 @@ if __name__ == "__main__":
         df = df.merge(df_unique, on="smiles", how="left")
 
         # save per-method results
-        output_path = Path("data/interim/optimization")
+        output_path = Path("ChemFlow/data/interim/optimization")
         output_path.mkdir(parents=True, exist_ok=True)
         out_file = output_path / f"{args.model_name}.csv"
         df.to_csv(out_file, index=False)

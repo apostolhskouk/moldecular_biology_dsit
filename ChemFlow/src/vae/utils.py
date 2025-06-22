@@ -4,8 +4,8 @@ from ChemFlow.src.vae import VAE, MolDataModule
 
 
 def load_vae(
-    file_path: str = "data/processed/zmc.smi",
-    model_path: str = "checkpoints/vae/zmc/checkpoint.pt",
+    file_path: str = "ChemFlow/data/processed/zmc.smi",
+    model_path: str = "ChemFlow/checkpoints/vae/zmc/checkpoint.pt",
     latent_dim: int = 1024,
     embedding_dim: int = 128,
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
@@ -33,8 +33,8 @@ class DemoDataset():
     vocab: np.ndarray[str]
 
 def load_vae_demo(
-    file_path: str = "data/processed/zmc.smi",
-    model_path: str = "checkpoints/vae/zmc/checkpoint.pt",
+    file_path: str = "ChemFlow/data/processed/zmc.smi",
+    model_path: str = "ChemFlow/checkpoints/vae/zmc/checkpoint.pt",
     latent_dim: int = 1024,
     embedding_dim: int = 128,
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),

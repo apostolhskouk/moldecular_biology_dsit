@@ -109,7 +109,7 @@ if __name__ == "__main__":
     df = df.merge(df_unique, on="smiles", how="left")
 
     # save results to csv
-    output_path = Path("data/interim/corr")
+    output_path = Path("ChemFlow/data/interim/corr")
     output_path.mkdir(parents=True, exist_ok=True)
 
     df.to_csv(output_path / f"{args.model_name}.csv")

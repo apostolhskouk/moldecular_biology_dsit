@@ -282,7 +282,7 @@ if __name__ == "__main__":
 
     predictor.load_state_dict(
         torch.load(
-            f"checkpoints/prop_predictor/{args.prop}/checkpoint.pt", map_location=device
+            f"ChemFlow/checkpoints/prop_predictor/{args.prop}/checkpoint.pt", map_location=device
         )
     )
     for p in predictor.parameters():
@@ -295,7 +295,7 @@ if __name__ == "__main__":
     unsup_generator = VAEGenerator(vae).to(device)
 
     unsup_pde = load_wavepde(
-        checkpoint=f"checkpoints/wavepde/zmc/checkpoint.pt",
+        checkpoint=f"ChemFlow/checkpoints/wavepde/zmc/checkpoint.pt",
         generator=unsup_generator,
         k=10,
         device=device,
@@ -306,7 +306,7 @@ if __name__ == "__main__":
         p.requires_grad = False
 
     sup_pde = load_wavepde(
-        checkpoint=f"checkpoints/wavepde_prop/zmc/{args.prop}/checkpoint.pt",
+        checkpoint=f"ChemFlow/checkpoints/wavepde_prop/zmc/{args.prop}/checkpoint.pt",
         generator=sup_generator,
         k=1,
         device=device,
@@ -316,7 +316,7 @@ if __name__ == "__main__":
         p.requires_grad = False
 
     unsup_hj = load_wavepde(
-        checkpoint=f"checkpoints/hjpde/zmc/checkpoint.pt",
+        checkpoint=f"ChemFlow/checkpoints/hjpde/zmc/checkpoint.pt",
         generator=unsup_generator,
         k=10,
         device=device,
@@ -327,7 +327,7 @@ if __name__ == "__main__":
         p.requires_grad = False
 
     sup_hj = load_wavepde(
-        checkpoint=f"checkpoints/hjpde_prop/zmc/{args.prop}/checkpoint.pt",
+        checkpoint=f"ChemFlow/checkpoints/hjpde_prop/zmc/{args.prop}/checkpoint.pt",
         generator=sup_generator,
         k=1,
         device=device,

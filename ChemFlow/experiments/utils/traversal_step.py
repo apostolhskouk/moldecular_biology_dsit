@@ -93,8 +93,8 @@ class Traversal:
         assert self.method in MODES, f"mode must be one of {MODES}"
 
         self.dm, self.vae = load_vae(
-            file_path=f"data/processed/{self.data_name}.smi",
-            model_path=f"checkpoints/vae/{self.data_name}/checkpoint.pt",
+            file_path=f"ChemFlow/data/processed/{self.data_name}.smi",
+            model_path=f"ChemFlow/checkpoints/vae/{self.data_name}/checkpoint.pt",
             latent_dim=1024,
             embedding_dim=128,
             device=self.device,
@@ -107,7 +107,7 @@ class Traversal:
                 latent_dim=self.vae.latent_dim, 
                 action_dim=self.vae.latent_dim
             ).to(self.device)
-            policy_checkpoint_path = f"checkpoints/rl_policy/{self.data_name}/{self.prop}/policy_network_final.pt"
+            policy_checkpoint_path = f"ChemFlow/checkpoints/rl_policy/{self.data_name}/{self.prop}/policy_network_final.pt"
             try:
                 self.policy_net_rl.load_state_dict(
                     torch.load(policy_checkpoint_path, map_location=self.device)
@@ -127,7 +127,7 @@ class Traversal:
             self.chemspace_u_z_base = torch.tensor(boundary_np, device=self.device).squeeze()
         elif self.method == "neural_ode":
             self.neural_ode_func = NeuralODEFunc(latent_dim=self.vae.latent_dim).to(self.device)
-            checkpoint_path = f"checkpoints/neural_ode/{self.data_name}/{self.prop}/checkpoint.pt"
+            checkpoint_path = f"ChemFlow/checkpoints/neural_ode/{self.data_name}/{self.prop}/checkpoint.pt"
             self.neural_ode_func.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
             for p_node in self.neural_ode_func.parameters():
                 p_node.requires_grad = False
@@ -135,7 +135,7 @@ class Traversal:
             return
         elif self.method == "neural_ode_unsup":
             self.neural_ode_func = NeuralODEFunc(latent_dim=self.vae.latent_dim).to(self.device)
-            checkpoint_path = f"checkpoints/neural_ode_unsup/{self.data_name}/{self.prop}/checkpoint.pt"
+            checkpoint_path = f"ChemFlow/checkpoints/neural_ode_unsup/{self.data_name}/{self.prop}/checkpoint.pt"
             self.neural_ode_func.load_state_dict(torch.load(checkpoint_path, map_location=self.device))
             for p_node in self.neural_ode_func.parameters():
                 p_node.requires_grad = False
@@ -143,7 +143,7 @@ class Traversal:
             return
         elif self.method == "latent_stepper":
             self.stepper_mlp = LatentStepperMLP(latent_dim=self.vae.latent_dim) # Add hidden_dims, dropout from args if needed
-            stepper_checkpoint_path = f"checkpoints/latent_stepper/{self.data_name}/{self.prop}/stepper_mlp.pt"
+            stepper_checkpoint_path = f"ChemFlow/checkpoints/latent_stepper/{self.data_name}/{self.prop}/stepper_mlp.pt"
             self.stepper_mlp.load_state_dict(torch.load(stepper_checkpoint_path, map_location=self.device))
             self.stepper_mlp.to(self.device)
             self.stepper_mlp.eval()
@@ -151,7 +151,7 @@ class Traversal:
         if self.method in {"limo", "fp", "wave_sup", "hj_sup", "hybrid_sup_unsup"}:
             self.predictor = Predictor(self.dm.max_len * self.dm.vocab_size).to(self.device)
             self.predictor.load_state_dict(
-                torch.load(f"checkpoints/prop_predictor/{self.prop}/checkpoint.pt", map_location=self.device)
+                torch.load(f"ChemFlow/checkpoints/prop_predictor/{self.prop}/checkpoint.pt", map_location=self.device)
             )
             for p_pred in self.predictor.parameters():
                 p_pred.requires_grad = False
@@ -163,7 +163,7 @@ class Traversal:
             self.generator = PropGenerator(self.vae, self.predictor).to(self.device)
             pde_name = self.method.split("_")[0]
             self.pde = load_wavepde(
-                checkpoint=f"checkpoints/{pde_name}pde_prop/{self.data_name}/{self.prop}/checkpoint.pt",
+                checkpoint=f"ChemFlow/checkpoints/{pde_name}pde_prop/{self.data_name}/{self.prop}/checkpoint.pt",
                 generator=self.generator, k=1, device=self.device
             )
             self.idx = 0 # Supervised usually has k=1
@@ -171,7 +171,7 @@ class Traversal:
             self.generator = VAEGenerator(self.vae).to(self.device)
             pde_name = self.method.split("_")[0]
             self.pde = load_wavepde(
-                checkpoint=f"checkpoints/{pde_name}pde/{self.data_name}/checkpoint.pt",
+                checkpoint=f"ChemFlow/checkpoints/{pde_name}pde/{self.data_name}/checkpoint.pt",
                 generator=self.generator, k=10, device=self.device
             )
             if k_idx is not None:
@@ -188,7 +188,7 @@ class Traversal:
             
             # Unsupervised part (e.g., wave_unsup)
             self.generator_unsup_hybrid = VAEGenerator(self.vae).to(self.device)
-            unsup_pde_checkpoint = f"checkpoints/{self.hybrid_unsup_pde_type}pde/{self.data_name}/checkpoint.pt"
+            unsup_pde_checkpoint = f"ChemFlow/checkpoints/{self.hybrid_unsup_pde_type}pde/{self.data_name}/checkpoint.pt"
             self.pde_unsup_hybrid = load_wavepde(
                 checkpoint=unsup_pde_checkpoint,
                 generator=self.generator_unsup_hybrid, k=10, device=self.device

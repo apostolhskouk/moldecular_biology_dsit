@@ -112,7 +112,7 @@ class PropDataset(LightningDataModule):
         n: int = 110_000,
         batch_size: int = 1_000,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-        output_dir: str = "data/processed/prop",
+        output_dir: str = "ChemFlow/data/processed/prop",
         seed: int = 42,
         binding_affinity: bool = False,
     ):
@@ -134,7 +134,7 @@ class PropDataset(LightningDataModule):
         # self.id = sha256(self.hparams)
 
     def setup(self, stage=None):
-        file_name = f"data/interim/props/prop_predictor_{self.n}_seed{self.seed}_vae_pde"
+        file_name = f"ChemFlow/data/interim/props/prop_predictor_{self.n}_seed{self.seed}_vae_pde"
 
         if self.binding_affinity:
             print(f"Binding affinity for {self.prop}")
@@ -206,8 +206,8 @@ def main():
     # L.seed_everything(args.seed)
 
     dm, vae = load_vae(
-        file_path="data/processed/zmc.smi",
-        model_path="checkpoints/vae/zmc/checkpoint.pt",
+        file_path="ChemFlow/data/processed/zmc.smi",
+        model_path="ChemFlow/checkpoints/vae/zmc/checkpoint.pt",
     )
 
     dm_prop = PropDataset(vae=vae, dm=dm, **args.data)
@@ -234,7 +234,7 @@ def main():
                     save_last=True,
                     save_weights_only=True,
                     save_on_train_epoch_end=False,
-                    dirpath=f"checkpoints/prop_predictor/{dm_prop.prop}",
+                    dirpath=f"ChemFlow/checkpoints/prop_predictor/{dm_prop.prop}",
                 ),
                 # LearningRateFinder(),
             ],
@@ -253,7 +253,7 @@ def main():
                     save_last=True,
                     save_weights_only=True,
                     save_on_train_epoch_end=False,
-                    dirpath=f"checkpoints/prop_predictor/{dm_prop.prop}",
+                    dirpath=f"ChemFlow/checkpoints/prop_predictor/{dm_prop.prop}",
                 ),
             ],
             # val_check_interval=0.25,

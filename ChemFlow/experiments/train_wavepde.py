@@ -72,8 +72,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dm, vae = load_vae(
-        file_path="data/processed/zmc.smi",
-        model_path="checkpoints/vae/zmc/checkpoint.pt",
+        file_path="ChemFlow/processed/zmc.smi",
+        model_path="ChemFlow/checkpoints/vae/zmc/checkpoint.pt",
         device=device,
     )
 

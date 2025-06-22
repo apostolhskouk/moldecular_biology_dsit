@@ -65,7 +65,7 @@ if __name__ == "__main__":
     )
 
     # Always read zinc250k for optimization
-    df = pd.read_csv("data/interim/props/zinc250k.csv")[["smiles", args.prop]]
+    df = pd.read_csv("ChemFlow/data/interim/props/zinc250k.csv")[["smiles", args.prop]]
     df = df.sort_values(args.prop, ascending=args.prop not in MINIMIZE_PROPS)
 
     smiles_raw = df["smiles"].astype(str).tolist()
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     df = df.merge(df_unique, on="smiles", how="left")
 
     # save results to csv
-    output_path = Path("data/interim/optimization")
+    output_path = Path("ChemFlow/data/interim/optimization")
     output_path.mkdir(parents=True, exist_ok=True)
 
     df.to_csv(output_path / f"{args.model_name}.csv")

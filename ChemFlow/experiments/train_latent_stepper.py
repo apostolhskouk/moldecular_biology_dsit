@@ -185,8 +185,8 @@ def main_train_latent_stepper():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dm_vae, vae = load_vae(
-        file_path=f"data/processed/{args.data_name}.smi",
-        model_path=f"checkpoints/vae/{args.data_name}/checkpoint.pt", device=device
+        file_path=f"ChemFlow/data/processed/{args.data_name}.smi",
+        model_path=f"ChemFlow/checkpoints/vae/{args.data_name}/checkpoint.pt", device=device
     )
     for p_vae in vae.parameters(): p_vae.requires_grad = False
     vae.eval()
@@ -203,7 +203,7 @@ def main_train_latent_stepper():
 
     if is_supervised_actual:
         predictor = Predictor(dm_vae.max_len * dm_vae.vocab_size)
-        predictor_path = f"checkpoints/prop_predictor/{args.prop_name}/checkpoint.pt"
+        predictor_path = f"ChemFlow/checkpoints/prop_predictor/{args.prop_name}/checkpoint.pt"
         print(f"Loading predictor from {predictor_path}")
         predictor.load_state_dict(
             torch.load(predictor_path, map_location=device, weights_only=False)

@@ -73,7 +73,7 @@ class WavePDE(PDE):
                 break
 
             # Force gradient calculation context for this block
-            with torch.enable_grad():  # <--- KEY CHANGE: Ensure grad context
+            with torch.enable_grad():  
                 _t_tensor = torch.full((1,), float(i), dtype=z_loop.dtype, device=z_loop.device, requires_grad=True)
                 
                 # Ensure z_loop still requires grad (belt-and-suspenders, z_loop.requires_grad_(True) above should suffice)
@@ -95,7 +95,6 @@ class WavePDE(PDE):
                             print("CRITICAL: inference_mode is ENABLED. This will prevent requires_grad_() from working as expected and grad() calls.")
                     except AttributeError:
                         print("Could not check inference_mode via torch._C (might be version specific).")
-                # --- End Enhanced Debugging ---
 
                 u = self.mlp[idx](z_loop, _t_tensor)  # Potential energy u(z,t)
                 
@@ -304,7 +303,7 @@ class WavePDEModel(LightningModule):
 
 
 def load_wavepde(
-    checkpoint: str = "checkpoints/wavepde/zinc250k/checkpoint.pt",
+    checkpoint: str = "ChemFlow/checkpoints/wavepde/zinc250k/checkpoint.pt",
     generator: Generator = None,
     k: int = 10,
     time_steps: int = 20,
@@ -337,9 +336,9 @@ if __name__ == "__main__":
     dm.prepare_data()
     dm.setup()
 
-    obj = torch.load("checkpoints/vae/zinc250k/checkpoint.pt")
+    obj = torch.load("ChemFlow/checkpoints/vae/zinc250k/checkpoint.pt")
     vae = VAE(dm.max_len, dm.vocab_size).to(device)
-    vae.load_state_dict(torch.load("checkpoints/vae/zinc250k/checkpoint.pt"))
+    vae.load_state_dict(torch.load("ChemFlow/checkpoints/vae/zinc250k/checkpoint.pt"))
     vae.eval()
 
     generator = VAEGenerator(vae).to(device)

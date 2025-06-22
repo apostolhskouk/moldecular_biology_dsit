@@ -159,7 +159,7 @@ def parse_args():
 
     parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-e", "--epochs", type=int, default=30)
-    parser.add_argument("-o", "--output", type=str, default="checkpoints/vae_pde/zmc")
+    parser.add_argument("-o", "--output", type=str, default="ChemFlow/checkpoints/vae_pde/zmc")
 
     parser.add_lightning_class_args(VAE_PDE_MODEL, "model")
     parser.add_lightning_class_args(MolDataModule, "data")

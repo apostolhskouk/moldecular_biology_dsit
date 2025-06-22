@@ -132,7 +132,7 @@ class MolDataModule(L.LightningDataModule):
 
     def __init__(
         self,
-        file: str = "data/processed/zmc.smi",
+        file: str = "ChemFlow/data/processed/zmc.smi",
         batch_size: int = 1024,
         length_limit: int = 72,
     ):
@@ -143,7 +143,7 @@ class MolDataModule(L.LightningDataModule):
         self.name = self.file.stem
         self.length_limit = length_limit
 
-        self.path = Path("data/processed") / f"{self.name}_data.pt"
+        self.path = Path("ChemFlow/data/processed") / f"{self.name}_data.pt"
 
     def prepare_data(self) -> None:
         try:
@@ -223,7 +223,7 @@ if __name__ == "__main__":
 
     # dm = MolDataModule(file="data/processed/moses.smi")
     # dm = MolDataModule(file="data/processed/chembl.smi")
-    dm = MolDataModule(file="data/processed/zmc.smi")
+    dm = MolDataModule(file="ChemFlow/data/processed/zmc.smi")
     # dm = MolDataModule()
     # dm.prepare_data()
     dm.setup()

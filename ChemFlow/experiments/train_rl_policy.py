@@ -264,8 +264,8 @@ def main_train_rl_policy():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dm_vae, vae = load_vae(
-        file_path=f"data/processed/{data_name}.smi",
-        model_path=f"checkpoints/vae/{data_name}/checkpoint.pt", device=device
+        file_path=f"ChemFlow/data/processed/{data_name}.smi",
+        model_path=f"ChemFlow/checkpoints/vae/{data_name}/checkpoint.pt", device=device
     )
     for p in vae.parameters(): p.requires_grad = False
     vae.eval()
@@ -299,7 +299,7 @@ def main_train_rl_policy():
         dummy_dataloader_batch_size=dummy_dataloader_batch_size 
     ).to(device)
 
-    output_dir_rl = Path(f"checkpoints/rl_policy/{data_name}/{prop_name}")
+    output_dir_rl = Path(f"ChemFlow/checkpoints/rl_policy/{data_name}/{prop_name}")
     output_dir_rl.mkdir(parents=True, exist_ok=True)
 
     trainer = L.Trainer(

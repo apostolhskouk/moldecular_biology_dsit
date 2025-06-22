@@ -130,7 +130,7 @@ def delta_g_to_kd(x: float) -> float:
 
 def smiles2affinity(
     smiles: str | list[str],
-    protein_file: Path | str = "data/raw/1err/1err.maps.fld",
+    protein_file: Path | str = "ChemFlow/data/raw/1err/1err.maps.fld",
     autodock: Path | str = "autodock_gpu_128wi",
     output_path: Path | str = "/tmp",
     device_idx: int = 0,

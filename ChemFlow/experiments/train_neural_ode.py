@@ -128,7 +128,7 @@ def parse_args_train_neural_ode():
     parser = LightningArgumentParser()
     parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-e", "--epochs", type=int, default=40)
-    parser.add_argument("-o", "--output_dir_base", type=str, default="checkpoints/neural_ode")
+    parser.add_argument("-o", "--output_dir_base", type=str, default="ChemFlow/checkpoints/neural_ode")
     parser.add_argument("--prop_name", type=str, default="qed")
     parser.add_argument("--data_name", type=str, default="zmc")
     parser.add_argument("--is_supervised", action="store_true", default=False)
@@ -150,8 +150,8 @@ def main_train_neural_ode():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dm_vae, vae = load_vae(
-        file_path=f"data/processed/{args.data_name}.smi",
-        model_path=f"checkpoints/vae/{args.data_name}/checkpoint.pt", device=device
+        file_path=f"ChemFlow/data/processed/{args.data_name}.smi",
+        model_path=f"ChemFlow/checkpoints/vae/{args.data_name}/checkpoint.pt", device=device
     )
     for p_vae in vae.parameters(): p_vae.requires_grad = False
     vae.eval()
@@ -164,7 +164,7 @@ def main_train_neural_ode():
         print(f"Loading predictor from checkpoints/prop_predictor/{args.prop_name}/checkpoint.pt")
         predictor.load_state_dict(
             torch.load(
-                f"checkpoints/prop_predictor/{args.prop_name}/checkpoint.pt",
+                f"ChemFlow/checkpoints/prop_predictor/{args.prop_name}/checkpoint.pt",
                 map_location=device,
                 weights_only=False
             )
