@@ -5,8 +5,8 @@ import os
 import pandas as pd
 import numpy as np
 from pandarallel import pandarallel
-from src.vae import load_vae, VAE, MolDataModule
-from src.utils.scores import *
+from ChemFlow.src.vae import load_vae, VAE, MolDataModule
+from ChemFlow.src.utils.scores import *
 import torch
 from tqdm import tqdm, trange
 from tap import Tap
@@ -16,17 +16,14 @@ from rdkit import Chem
 
 from accelerate.utils import set_seed
 
-from cd2root import cd2root
+from ChemFlow.src.utils.scores import *
+from ChemFlow.experiments.utils.utils import partitionIndexes
 
-cd2root()
-
-from src.utils.scores import *
-from experiments.utils.utils import partitionIndexes
 
 
 class Args(Tap):
-    smiles_file: str = "data/processed/zmc.smi"
-    vae_path: str = "checkpoints/vae/zmc/checkpoint.pt"
+    smiles_file: str = "ChemFlow/data/processed/zmc.smi"
+    vae_path: str = "ChemFlow/checkpoints/vae/zmc/checkpoint.pt"
     seed: int = 42
     n: int = 110_000
     batch_size: int = 10_000
@@ -124,7 +121,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    output_dir = Path("data/interim/props")
+    output_dir = Path("ChemFlow/data/interim/props")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     main()

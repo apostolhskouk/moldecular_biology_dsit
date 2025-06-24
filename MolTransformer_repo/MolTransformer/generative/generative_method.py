@@ -42,7 +42,7 @@ class GenerateMethods(IndexConvert):
     11. set_property_model v
     12. sort_pareto_frontier  v
                     """
-    def __init__(self,gpu_mode = False,report_save_path = '',save = False):
+    def __init__(self,gpu_mode = True,report_save_path = '',save = False):
         super().__init__()  # Initialize the base IndexConvert class
         self.device = device
 

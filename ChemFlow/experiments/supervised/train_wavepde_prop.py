@@ -9,15 +9,12 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from pathlib import Path
 
-from cd2root import cd2root
 
-cd2root()
-
-from src.predictor import Predictor
-from src.vae import VAE, load_vae
-from src.pinn import PropGenerator
-from src.pinn.pde import WavePDEModel
-from src.utils.scores import *
+from ChemFlow.src.predictor import Predictor
+from ChemFlow.src.vae import VAE, load_vae
+from ChemFlow.src.pinn import PropGenerator
+from ChemFlow.src.pinn.pde import WavePDEModel
+from ChemFlow.src.utils.scores import *
 
 
 class DataModule(LightningDataModule):
@@ -55,7 +52,7 @@ def parse_args():
     parser.add_argument(
         "--wandb-entity",
         type=str,
-        default=None, 
+        default="lakhs", 
         help="Weights & Biases entity (username or organization)",
     )
     parser.add_lightning_class_args(WavePDEModel, "model")
@@ -81,8 +78,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     dm, vae = load_vae(
-        file_path="data/processed/zmc.smi",
-        model_path="checkpoints/vae/zmc/checkpoint.pt",
+        file_path="ChemFlow/data/processed/zmc.smi",
+        model_path="ChemFlow/checkpoints/vae/zmc/checkpoint.pt",
         device=device,
     )
 
@@ -90,7 +87,7 @@ def main():
 
     predictor = Predictor(vae.max_len * vae.vocab_size).to(device)
     predictor.load_state_dict(
-        torch.load(f"checkpoints/prop_predictor/{args.prop}/checkpoint.pt")
+        torch.load(f"ChemFlow/checkpoints/prop_predictor/{args.prop}/checkpoint.pt")
     )
     predictor.eval()
     for p in predictor.parameters():
@@ -128,32 +125,9 @@ def main():
                 save_last=True,
             ),
         ],
-        strategy="ddp_find_unused_parameters_true",
         # enable_checkpointing=False,
         # detect_anomaly=True,
     )
-    else:
-        trainer = L.Trainer(
-        # gpus=1,
-        accelerator="gpu",
-        devices=-1,
-        max_epochs=args.epochs,
-        max_steps=100_000,
-        callbacks=[
-            LearningRateMonitor(logging_interval="epoch"),
-            ModelCheckpoint(
-                monitor="val/loss",
-                mode="min",
-                save_top_k=1,
-                dirpath=output_path,
-                save_last=True,
-            ),
-        ],
-        strategy="ddp_find_unused_parameters_true",
-        # enable_checkpointing=False,
-        # detect_anomaly=True,
-    )
-    
     print("Training..")
     trainer.fit(
         model,

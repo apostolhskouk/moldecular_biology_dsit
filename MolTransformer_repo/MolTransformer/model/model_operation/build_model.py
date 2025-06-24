@@ -36,11 +36,12 @@ class BuildModel():
         - For loading a specific pre-trained High Fidelity model: BuildModel(preload_model='HF', pretrain_model_file='path/to/model')
 
     """
-    def __init__(self,device = torch.device("cpu"),model_mode = 'SS',gpu_mode = True ,train = False,preload_model = '',pretrain_model_file = '',dataset = ''):
+    def __init__(self,device = torch.device("cuda"),model_mode = 'SS',gpu_mode = True ,train = False,preload_model = '',pretrain_model_file = '',dataset = ''):
         
         self.device = device
         self.model_mode = model_mode
         self.gpu_mode = gpu_mode
+        print(f"initializing with \n\n\n\n {gpu_mode} \n\n\n\n")
         if not preload_model:
             preload_model = model_mode
         if dataset:

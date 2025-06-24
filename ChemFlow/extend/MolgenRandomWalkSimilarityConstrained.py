@@ -8,11 +8,6 @@ import random
 from pathlib import Path
 from tqdm import tqdm, trange 
 from pandarallel import pandarallel
-
-from cd2root import cd2root
-cd2root()
-
-# Assuming your GenerateMethods is here:
 from MolTransformer_repo.MolTransformer.generative import GenerateMethods 
 from ChemFlow.src.utils.scores import PROP_FN, MINIMIZE_PROPS
 

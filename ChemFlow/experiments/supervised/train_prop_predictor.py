@@ -23,13 +23,9 @@ from dict_hash import sha256
 
 from scipy.stats import linregress, pearsonr, spearmanr
 
-from cd2root import cd2root
-
-cd2root()
-
-from src.vae import load_vae, VAE, MolDataModule
-from src.utils.scores import *
-from src.predictor import Predictor
+from ChemFlow.src.vae import load_vae, VAE, MolDataModule
+from ChemFlow.src.utils.scores import *
+from ChemFlow.src.predictor import Predictor
 
 
 class Model(LightningModule):

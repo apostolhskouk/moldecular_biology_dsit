@@ -146,15 +146,9 @@ class MolDataModule(L.LightningDataModule):
         self.path = Path("ChemFlow/data/processed") / f"{self.name}_data.pt"
 
     def prepare_data(self) -> None:
-        try:
-            dataset = torch.load(self.path)
-            print(f"Loaded tokenized dataset from {self.path}")
-        except Exception as err:
-            print(f"Failed to load tokenized dataset from {self.path}: {err}")
-            print(f"Tokenizing dataset and saving to {self.path}")
+        dataset = torch.load(self.path)
+        print(f"Loaded tokenized dataset from {self.path}")
 
-            dataset = make_dataset(self.file, self.length_limit)
-            torch.save(dataset, self.path)
 
     def setup(self, stage: str = None) -> None:
         self.dataset = torch.load(self.path)
@@ -217,9 +211,6 @@ class MolDataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    from cd2root import cd2root
-
-    cd2root()
 
     # dm = MolDataModule(file="data/processed/moses.smi")
     # dm = MolDataModule(file="data/processed/chembl.smi")

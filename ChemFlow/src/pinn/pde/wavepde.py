@@ -52,121 +52,79 @@ class WavePDE(PDE):
         self.mlp = nn.ModuleList([MLP(n_in=n_in, n_out=1) for _ in range(k)])
         self.c = nn.Parameter(torch.ones(k))
 
-    def forward(self, idx: int, z_input: Tensor, t_target: int) -> WavePDEResult: # Renamed args for clarity
-        assert t_target < self.half_range, f"t_target={t_target} must be less than {self.half_range}"
+    def forward(self, idx: int, z: Tensor, t: int) -> WavePDEResult:
+        assert t < self.half_range, f"t={t} must be less than {self.half_range}"
 
-        c_param = self.c[idx] # Current wave speed parameter
+        # mlp = self.mlp[idx]
+        c = self.c[idx]
 
-        # z_loop is the tensor that evolves through time steps i
-        # z_input is assumed to be prepared by WavePDEModel.step (leaf, requires_grad=True)
-        z_loop = z_input.clone().requires_grad_(True) # This creates a new leaf node for this forward pass
+        z = z.clone().requires_grad_()
 
-        loss_ic = torch.tensor(0.0, device=z_loop.device)
-        loss_pde_sum = torch.tensor(0.0, device=z_loop.device)
-        loss_jvp = torch.tensor(0.0, device=z_loop.device)
-        
+        loss_ic, loss_pde, loss_jvp = 0, 0, 0
         energy, latent1, latent2 = None, None, None
-        pde_terms_count = 0
 
-        for i in range(self.half_range + 2): # Loop over discrete time points
+        for i in range(self.half_range + 2):
+            # Gary: use half_range + 2 to be the tick for latent 2
             if i >= self.half_range and latent2 is not None:
                 break
 
-            # Force gradient calculation context for this block
-            with torch.enable_grad():  
-                _t_tensor = torch.full((1,), float(i), dtype=z_loop.dtype, device=z_loop.device, requires_grad=True)
-                
-                # Ensure z_loop still requires grad (belt-and-suspenders, z_loop.requires_grad_(True) above should suffice)
-                if not z_loop.requires_grad:
-                    print(f"WARNING: z_loop lost requires_grad before MLP call at i={i}. Forcing it back.")
-                    z_loop.requires_grad_(True)
+            _t = torch.full((1,), i, dtype=z.dtype, device=z.device, requires_grad=True)
 
-                # --- Start Enhanced Debugging ---
-                if i == 0: # Only print for the first iteration, or where it typically fails
-                    print(f"\n--- Debug Info: WavePDE.forward (iter {i}) ---")
-                    print(f"z_input: id={id(z_input)}, device={z_input.device}, requires_grad={z_input.requires_grad}, is_leaf={z_input.is_leaf}")
-                    print(f"z_loop (after clone().requires_grad_(True)): id={id(z_loop)}, device={z_loop.device}, requires_grad={z_loop.requires_grad}, is_leaf={z_loop.is_leaf}, grad_fn={z_loop.grad_fn}")
-                    print(f"_t_tensor: requires_grad={_t_tensor.requires_grad}")
-                    print(f"Global grad enabled: torch.is_grad_enabled() = {torch.is_grad_enabled()}")
-                    try:
-                        is_inference = torch._C._is_inference_mode_enabled()
-                        print(f"Global inference mode: torch._C._is_inference_mode_enabled() = {is_inference}")
-                        if is_inference:
-                            print("CRITICAL: inference_mode is ENABLED. This will prevent requires_grad_() from working as expected and grad() calls.")
-                    except AttributeError:
-                        print("Could not check inference_mode via torch._C (might be version specific).")
+            u = self.mlp[idx](z, _t)  # (b, 1)
+            u_z = grad(u.sum(), z, create_graph=True)[0]  # (b, n_in)
 
-                u = self.mlp[idx](z_loop, _t_tensor)  # Potential energy u(z,t)
-                
-                if i == 0: # More debug after MLP call
-                    print(f"u (after mlp call): requires_grad={u.requires_grad}, grad_fn={u.grad_fn.name() if u.grad_fn else 'None'}")
+            # Initial condition loss
+            if i == 0:
+                loss_ic = u_z.square().mean()
 
-
-                # Gradient of u w.r.t. z (spatial derivative component)
-                # This is line 70 (or equivalent) where the error occurs
-                u_z = grad(u.sum(), z_loop, create_graph=True)[0]
-
-                if i == 0: # Initial condition
-                    loss_ic = u_z.square().mean()
-
-                if i < self.half_range: # PDE residual loss for t < T/2
-                    pde_terms_count +=1
-                    u_t = grad(u.sum(), _t_tensor, create_graph=True)[0]
-                    
-                    if self.pde_function == "wave":
-                        u_tt = grad(u_t.sum(), _t_tensor, create_graph=True)[0]
-                        u_zz = grad(u_z.sum(), z_loop, create_graph=True)[0]
-                        pde_residual = u_tt - (c_param**2) * u_zz
-                        loss_pde_sum += pde_residual.square().mean()
-
-                    elif self.pde_function == "hj":
-                        hamiltonian = 0.5 * u_z.square().sum(dim=-1, keepdim=True)
-                        pde_residual = u_t.unsqueeze(0) + hamiltonian
-                        loss_pde_sum += pde_residual.square().mean()
-                    else:
-                        raise NotImplementedError
-
-                # JVP loss calculation
-                if i == t_target + 1:
-                    energy = u.detach() 
-                    latent1 = z_loop.detach().clone()
-                    _, jvp_value = jvp(self.generator, z_loop, v=u_z, create_graph=True)
-                    if jvp_value.shape[1] == 1:
-                        loss_jvp = (jvp_value.sign() * jvp_value.square()).mean()
-                        if self.minimize_jvp:
-                            loss_jvp = -loss_jvp
-                    else:
-                        loss_jvp = jvp_value.square().mean()
-
-                elif i == t_target + 2:
-                    latent2 = z_loop.detach().clone()
-
-                # Update z_loop: z_{i+1} = z_i + step_vector
-                # This step must also be within the `enable_grad` context if subsequent u_z relies on it.
-                if self.normalize is not None:
-                    norm_u_z = u_z.norm(dim=1, keepdim=True)
-                    # Ensure u_z has a grad_fn if z_loop is to continue tracking grads correctly
-                    # print(f"WavePDE iter {i} u_z: requires_grad={u_z.requires_grad}, grad_fn name: {u_z.grad_fn.name() if u_z.grad_fn else None}")
-                    z_loop = z_loop + u_z / (norm_u_z + 1e-8) * self.normalize
+            # PDE loss
+            if i < self.half_range:
+                u_t = grad(u.sum(), _t, create_graph=True)[0]  # (1,)
+                if self.pde_function == "wave":
+                    u_tt = grad(u_t.sum(), _t, create_graph=True)[0]  # (1,)
+                    u_zz = grad(u_z.sum(), z, create_graph=True)[0]  # (b, n_in)
+                    loss_pde += (u_tt - (c**2) * u_zz).square().mean()
+                elif self.pde_function == "hj":
+                    loss_pde += (u_t + 0.5 * u_z.square().mean()).square().mean()
                 else:
-                    z_loop = z_loop + u_z
-                # After this update, z_loop is no longer a leaf, it will have a grad_fn.
-                # print(f"WavePDE iter {i} z_loop (post-update): requires_grad={z_loop.requires_grad}, is_leaf={z_loop.is_leaf}, grad_fn name: {z_loop.grad_fn.name() if z_loop.grad_fn else None}")
-        
-        avg_loss_pde = loss_pde_sum / pde_terms_count if pde_terms_count > 0 else torch.tensor(0.0, device=z_input.device)
-        total_loss = loss_ic + avg_loss_pde - loss_jvp
+                    raise NotImplementedError
+
+            # JVP loss
+            if i == t + 1:
+                energy = u
+                latent1 = z
+                _, jvp_value = jvp(
+                    self.generator, z, v=u_z, create_graph=True
+                )  # (b, g_out_dim)
+                if jvp_value.shape[1] == 1:
+                    # supervised, jvp_value size: (b, 1)
+                    loss_jvp = (jvp_value.sign() * jvp_value.square()).mean()
+                    # Fix that for SA, we want to minimize the property
+                    if self.minimize_jvp:
+                        loss_jvp = -loss_jvp
+                else:
+                    loss_jvp = jvp_value.square().mean()
+
+            elif i == t + 2:
+                latent2 = z
+
+            if self.normalize is not None:
+                z = z + u_z / u_z.norm(dim=1, keepdim=True) * self.normalize
+            else:
+                z = z + u_z
+
+        loss = loss_ic + loss_pde / self.half_range - loss_jvp
 
         return WavePDEResult(
-            loss=total_loss,
+            loss=loss,
             energy=energy,
             latent1=latent1,
             latent2=latent2,
             loss_ic=loss_ic,
-            loss_pde=avg_loss_pde,
+            loss_pde=loss_pde,
             loss_jvp=loss_jvp,
         )
-        
-        
+
     def inference(self, idx: int, z: Tensor, t: Tensor | int) -> tuple[Tensor, Tensor]:
         z = z.clone().requires_grad_()
 
@@ -182,99 +140,78 @@ class WavePDE(PDE):
 class WavePDEModel(LightningModule):
     def __init__(
         self,
+        generator: Generator = None,
+        k: int = 10,
+        time_steps: int = 20,
+        n_in: int = 1024,
         pde_function: str = "wave",
-        learning_rate: float = 1e-3,
         normalize: float | None = None,
-        # CLI controllable args
+        learning_rate: float = 1e-3,
+        minimize_jvp: bool = False,
     ):
         super().__init__()
-        self.save_hyperparameters(
-            "pde_function",
-            "learning_rate",
-            "normalize",
-        )
-        self.pde_function_val = pde_function
-        self.learning_rate_val = learning_rate
-        self.normalize_val = normalize
-        self.generator_instance = None
-        self.k_val = None
-        self.minimize_jvp_val = None
-        self.n_in_val = None
-        self.pde = None
 
-    def setup_core_logic(self, generator, k: int, minimize_jvp: bool, n_in: int, time_steps: int = 20):
-        self.generator_instance = generator
-        self.k_val = k
-        self.minimize_jvp_val = minimize_jvp
-        self.n_in_val = n_in
+        self.save_hyperparameters(ignore=("generator",))
+
+        self.k = k
         self.pde = WavePDE(
-            k=self.k_val,
-            generator=self.generator_instance,
-            time_steps=time_steps,
-            n_in=self.n_in_val,
-            pde_function=self.pde_function_val,
-            normalize=self.normalize_val,
-            minimize_jvp=self.minimize_jvp_val,
+            k, generator, time_steps, n_in, pde_function, normalize, minimize_jvp
         )
-        if self.k_val > 1 and hasattr(self.generator_instance, "reverse_size"):
-            self.aux_cls = AuxClassifier(self.generator_instance.reverse_size, self.k_val)
-            self.loss_fn_aux = nn.CrossEntropyLoss()
+        self.learning_rate = learning_rate
+        self.generator = generator
+
+        # Only train the aux classifier if there are multiple trajectories
+        if k > 1:
+            self.aux_cls = AuxClassifier(generator.reverse_size, k)
+            self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, idx: int, z: Tensor, t: int, positive: bool = True):
-        if self.pde is None:
-            raise RuntimeError("WavePDEModel not fully set up. Call setup_core_logic.")
         result = self.pde(idx, z, t)
-        if self.k_val > 1 and hasattr(self, 'aux_cls'):
+
+        if self.k > 1:
+            # Randomly choosing positive or negative traversal
             if positive:
-                mol_shifted = self.generator_instance(result.latent1)
-                mol_shifted2 = self.generator_instance(result.latent2)
+                mol_shifted = self.generator(result.latent1)
+                mol_shifted2 = self.generator(result.latent2)
             else:
-                mol_shifted = self.generator_instance(2 * z - result.latent2)
-                mol_shifted2 = self.generator_instance(2 * z - result.latent1)
+                mol_shifted = self.generator(2 * z - result.latent2)
+                mol_shifted2 = self.generator(2 * z - result.latent1)
+
             pred = self.aux_cls(torch.cat([mol_shifted, mol_shifted2], dim=1))
-            result.loss_cls = self.loss_fn_aux(
-                pred,
-                torch.full((z.shape[0],), idx, device=self.device)
+            result.loss_cls = self.loss_fn(
+                pred, torch.full((z.shape[0],), idx, device=self.device)
             )
             result.loss += result.loss_cls
+
         return result
 
-    def step(self, batch: tuple[Tensor], batch_idx: int, deterministic: bool = False, stage: str = None):
-        if self.pde is None:
-            raise RuntimeError("WavePDEModel not fully set up. Call setup_core_logic.")
-        (z_from_batch,) = batch # Rename to avoid confusion
-
-        # Ensure z is a leaf and requires grad before entering the PDE logic
-        # This z will be passed to self.pde
-        z = z_from_batch.clone().detach().requires_grad_(True)
-
+    def step(
+        self,
+        batch: tuple[Tensor],
+        batch_idx: int,
+        deterministic: bool = False,
+        stage: str = None,
+    ):
+        (z,) = batch
         if deterministic:
-            idx = batch_idx % self.k_val
+            idx = batch_idx % self.pde.k
             t = batch_idx % self.pde.half_range
             positive = batch_idx % 2 == 0
         else:
-            idx = random.randint(0, self.k_val - 1)
+            idx = random.randint(0, self.pde.k - 1)
             t = random.randint(0, self.pde.half_range - 1)
             positive = random.random() < 0.5
-        
-        # self() calls WavePDEModel.forward, which calls self.pde.forward(idx, z, t)
-        results = self(idx, z, t, positive=positive) 
-        
-        log_dict_payload = {
+
+        results = self(idx, z, t, positive=positive)
+
+        log = {
             f"{stage}/loss": results.loss,
             f"{stage}/loss_ic": results.loss_ic,
             f"{stage}/loss_pde": results.loss_pde,
             f"{stage}/loss_jvp": results.loss_jvp,
         }
-        if hasattr(results, 'loss_cls') and results.loss_cls is not None: # Check for None
-            log_dict_payload[f"{stage}/loss_cls"] = results.loss_cls
-        self.log_dict(
-            log_dict_payload,
-            on_step=(stage=="train"),
-            on_epoch=True,
-            prog_bar=True,
-            sync_dist=True # Removed if not DDP/FSDP, but harmless if single GPU
-        )
+        self.log_dict(log, on_epoch=True)
+
         return results.loss
 
     def training_step(self, batch: tuple[Tensor], batch_idx: int):
@@ -284,11 +221,10 @@ class WavePDEModel(LightningModule):
         return self.step(batch, batch_idx, deterministic=True, stage="val")
 
     def on_validation_epoch_start(self) -> None:
-        if self.training:
-            torch.set_grad_enabled(True)
+        torch.set_grad_enabled(True)
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate_val)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer, T_0=30, T_mult=2, eta_min=1e-6
         )
@@ -300,6 +236,7 @@ class WavePDEModel(LightningModule):
                 "frequency": 1,
             },
         }
+        # return torch.optim.SGD(self.parameters(), lr=self.learning_rate)
 
 
 def load_wavepde(
@@ -322,9 +259,6 @@ def load_wavepde(
 if __name__ == "__main__":
     # wavepde = WavePDE(1)
 
-    from cd2root import cd2root
-
-    cd2root()
 
     from ChemFlow.src.vae.vae import VAE
     from ChemFlow.src.vae.datamodule import MolDataModule
