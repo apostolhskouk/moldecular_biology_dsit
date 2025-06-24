@@ -47,7 +47,7 @@ def parse_args():
 
     parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-e", "--epochs", type=int, default=30)
-    parser.add_argument("-o", "--output", type=str, default="checkpoints")
+    parser.add_argument("-o", "--output", type=str, default="ChemFlow/checkpoints")
     parser.add_argument("-p", "--prop", type=str, default="qed")
     parser.add_argument(
         "--wandb-entity",
