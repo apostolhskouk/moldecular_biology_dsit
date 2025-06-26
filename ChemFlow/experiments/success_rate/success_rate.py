@@ -21,9 +21,6 @@ from tap import Tap
 
 from rdkit import Chem
 
-from cd2root import cd2root
-
-cd2root()
 
 from src.utils.scores import *
 from src.vae import load_vae

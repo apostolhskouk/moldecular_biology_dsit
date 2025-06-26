@@ -15,9 +15,6 @@ import bisect
 from pathlib import Path
 
 
-from cd2root import cd2root
-
-cd2root()
 
 from experiments.utils.traversal_step import Traversal
 from src.utils.scores import *

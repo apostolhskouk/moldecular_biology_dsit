@@ -12,13 +12,7 @@ from src.utils.scores import *
 # You might need to adjust sys.path or run this from the project root
 import sys
 # Assuming cd2root() sets the correct root path
-try:
-    from cd2root import cd2root
-    cd2root()
-    print(f"Changed working directory to: {os.getcwd()}")
-except ImportError:
-    print("cd2root not found or failed. Make sure you are in the project root"
-          " or adjust sys.path.")
+
 
 
 # !!! --- YOU MUST PROVIDE THE PATH TO YOUR TRAINING DATASET --- !!!

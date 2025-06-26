@@ -13,8 +13,6 @@ import pandas as pd
 from pathlib import Path
 from collections import deque
 
-from cd2root import cd2root
-cd2root()
 
 from src.vae import load_vae, VAE
 from src.predictor import Predictor

@@ -14,12 +14,9 @@ from pathlib import Path
 
 from accelerate.utils import set_seed
 
-from cd2root import cd2root
 
-cd2root()
-
-from src.vae import load_vae, VAE, MolDataModule
-from src.utils.scores import *
+from ChemFlow.src.vae import load_vae, VAE, MolDataModule
+from ChemFlow.src.utils.scores import *
 
 
 class Args(Tap):

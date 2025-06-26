@@ -6,10 +6,6 @@ from lightning.pytorch.cli import LightningArgumentParser
 
 from pathlib import Path
 
-from cd2root import cd2root
-
-cd2root()
-
 # from src.vae.utils import *
 from src.vae import VAE
 from src.vae.datamodule import MolDataModule

@@ -9,13 +9,9 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from pathlib import Path
 
-from cd2root import cd2root
-
-cd2root()
-
-from src.vae import VAE, load_vae
-from src.pinn import VAEGenerator
-from src.pinn.pde import WavePDEModel
+from ChemFlow.src.vae import VAE, load_vae
+from ChemFlow.src.pinn import VAEGenerator
+from ChemFlow.src.pinn.pde import WavePDEModel
 
 
 class DataModule(LightningDataModule):
@@ -48,7 +44,7 @@ def parse_args():
 
     parser.add_argument("-s", "--seed", type=int, default=42)
     parser.add_argument("-e", "--epochs", type=int, default=310)
-    parser.add_argument("-o", "--output", type=str, default="checkpoints")
+    parser.add_argument("-o", "--output", type=str, default="ChemFlow/checkpoints")
     parser.add_argument("--wandb_entity", type=str, default=None)
 
     parser.add_lightning_class_args(WavePDEModel, "model")

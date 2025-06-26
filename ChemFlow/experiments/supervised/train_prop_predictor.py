@@ -268,7 +268,7 @@ def main():
     trainer.validate(model, dm_prop.val_dataloader())
 
     # save model
-    output_dir = Path("checkpoints/prop_predictor") / dm_prop.prop
+    output_dir = Path("ChemFlow/checkpoints/prop_predictor") / dm_prop.prop
     output_dir.mkdir(parents=True, exist_ok=True)
     torch.save(model.cls.state_dict(), output_dir / "checkpoint.pt")
 

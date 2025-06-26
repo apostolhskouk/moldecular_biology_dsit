@@ -9,8 +9,6 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from pathlib import Path
 import random
 
-from cd2root import cd2root
-cd2root()
 
 from src.vae import load_vae, VAE
 from src.pinn.generator import PropGenerator, VAEGenerator

@@ -17,12 +17,8 @@ from rdkit import Chem
 from pathlib import Path
 
 
-from cd2root import cd2root
-
-cd2root()
-
-from experiments.utils.traversal_step import Traversal
-from src.utils.scores import *
+from ChemFlow.experiments.utils.traversal_step import Traversal
+from ChemFlow.src.utils.scores import *
 
 
 class Args(Tap):

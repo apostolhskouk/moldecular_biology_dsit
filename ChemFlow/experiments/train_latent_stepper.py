@@ -9,13 +9,10 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from pathlib import Path
 import random
 
-from cd2root import cd2root
-cd2root()
-
-from src.vae import load_vae, VAE
-from src.pinn.generator import PropGenerator, VAEGenerator
-from src.predictor import Predictor
-from src.utils.scores import MINIMIZE_PROPS # For checking minimization
+from ChemFlow.src.vae import load_vae, VAE
+from ChemFlow.src.pinn.generator import PropGenerator, VAEGenerator
+from ChemFlow.src.predictor import Predictor
+from ChemFlow.src.utils.scores import MINIMIZE_PROPS # For checking minimization
 
 # Re-using the DataModule from Neural ODE as it provides random z vectors
 class LatentStepperDataModule(LightningDataModule):

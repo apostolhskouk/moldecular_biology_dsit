@@ -3,17 +3,15 @@ from torch import Tensor
 import numpy as np
 import random
 
-from cd2root import cd2root
-cd2root()
 
-from src.utils.scores import *
-from src.vae import load_vae
-from src.pinn.pde import load_wavepde, NeuralODEFunc
-from src.pinn import PropGenerator, VAEGenerator
-from src.predictor import Predictor
+from ChemFlow.src.utils.scores import *
+from ChemFlow.src.vae import load_vae
+from ChemFlow.src.pinn.pde import load_wavepde, NeuralODEFunc
+from ChemFlow.src.pinn import PropGenerator, VAEGenerator
+from ChemFlow.src.predictor import Predictor
 from torchdiffeq import odeint_adjoint as odeint
-from experiments.train_latent_stepper import LatentStepperMLP
-from src.rl_policy import PolicyNetwork
+from ChemFlow.experiments.train_latent_stepper import LatentStepperMLP
+from ChemFlow.src.rl_policy import PolicyNetwork
 
 MODES = [
     "random",
@@ -33,10 +31,23 @@ MODES = [
 ]
 
 WAVEPDE_IDX_MAP = {
-    "plogp": 1, "sa": 1, "qed": 1, "drd2": 9, "jnk3": 4, "gsk3b": 0, "uplogp": 1, "1err": 2, "2iik": 4,
+    "drd2": 2,
+    "gsk3b": 8,
+    "jnk3": 0,
+    "plogp": 9,
+    "qed": 6,
+    "sa": 9,
+    "uplogp": 1,
 }
+
 HJPDE_IDX_MAP = {
-    "plogp": 0, "sa": 0, "qed": 9, "drd2": 2, "jnk3": 3, "gsk3b": 8, "uplogp": 0, "1err": 6, "2iik": 3,
+      "drd2": 9,
+    "gsk3b": 9,
+    "jnk3": 9,
+    "plogp": 9,
+    "qed": 7,
+    "sa": 9,
+    "uplogp": 9,
 }
 
 
