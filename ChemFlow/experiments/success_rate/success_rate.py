@@ -356,11 +356,11 @@ if __name__ == "__main__":
     print(f"prop: {args.prop}")
 
     # load tolerance from pickle file
-    with open("experiments/tolerance/relaxed_tolerance_range.pkl", "rb") as f:
+    with open("ChemFlow/experiments/tolerance/relaxed_tolerance_range.pkl", "rb") as f:
         tolerance_range = pickle.load(f)
-    with open("experiments/tolerance/relaxed_tolerance_IQR.pkl", "rb") as f:
+    with open("ChemFlow/experiments/tolerance/relaxed_tolerance_IQR.pkl", "rb") as f:
         tolerance_IQR = pickle.load(f)
-    with open("experiments/tolerance/relaxed_tolerance_std.pkl", "rb") as f:
+    with open("ChemFlow/experiments/tolerance/relaxed_tolerance_std.pkl", "rb") as f:
         tolerance_std = pickle.load(f)
 
     # pandas df save best relative, best step_size, best strict success rate, corresponding relaxed success range rate, corresponding relaxed success IQR rate, corresponding relaxed success std rate, corresponding final success rate
@@ -379,7 +379,7 @@ if __name__ == "__main__":
     )
 
     # make a txt file to store the results, dump the results line by line
-    with open(f"experiments/success_rate/{args.prop}_{args.n}.txt", "w") as f:
+    with open(f"ChemFlow/experiments/success_rate/{args.prop}_{args.n}.txt", "w") as f:
         # record day and time
         now_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(f"Datetime: {now_datetime}\n")
@@ -493,7 +493,7 @@ if __name__ == "__main__":
             )
 
         success_rate_df.to_csv(
-            f"experiments/success_rate/{args.prop}_{args.n}.csv",
+            f"ChemFlow/experiments/success_rate/{args.prop}_{args.n}.csv",
             float_format="%.2f",
             index=False,
         )
