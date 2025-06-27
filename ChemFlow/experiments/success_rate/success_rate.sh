@@ -1,8 +1,8 @@
-#!/bin/bash
+#!.bin.bash
 
-#python experiments/success_rate/success_rate.py --prop plogp 
-#python experiments/success_rate/success_rate.py --prop qed 
-#python experiments/success_rate/success_rate.py --prop sa 
-python experiments/success_rate/success_rate.py --prop drd2 
-python experiments/success_rate/success_rate.py --prop jnk3 
-python experiments/success_rate/success_rate.py --prop gsk3b 
+python -m ChemFlow.experiments.success_rate.success_rate --prop plogp 
+python -m ChemFlow.experiments.success_rate.success_rate --prop qed 
+python -m ChemFlow.experiments.success_rate.success_rate --prop sa 
+python -m ChemFlow.experiments.success_rate.success_rate --prop drd2 
+python -m ChemFlow.experiments.success_rate.success_rate --prop jnk3 
+python -m ChemFlow.experiments.success_rate.success_rate --prop gsk3b 

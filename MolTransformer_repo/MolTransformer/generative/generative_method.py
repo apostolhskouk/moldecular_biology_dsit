@@ -461,14 +461,20 @@ class GenerateMethods(IndexConvert):
             index_max_neighbor_properties = int(np.argmax(neighbor_properties))
 
             if max_neighbor_properties > current_property: # if improve
-                molecules_generation_record['SMILES'].append(top_k_neighbors['SMILES'][index_max_neighbor_properties])
+                # Use .iloc for robust integer-position based indexing
+                best_neighbor_smiles = top_k_neighbors['SMILES'].iloc[index_max_neighbor_properties]
+                best_neighbor_selfies = top_k_neighbors['SELFIES'].iloc[index_max_neighbor_properties]
+
+                molecules_generation_record['SMILES'].append(best_neighbor_smiles)
                 molecules_generation_record['Property'].append(max_neighbor_properties)
-                molecules_generation_record['SELFIES'].append(top_k_neighbors['SELFIES'][index_max_neighbor_properties])
+                molecules_generation_record['SELFIES'].append(best_neighbor_selfies)
+                
                 current_property = max_neighbor_properties
-                current_smile = top_k_neighbors['SMILES'][index_max_neighbor_properties]
+                current_smile = best_neighbor_smiles
+                
                 if self.save:
-                    plot_molecules(top_k_neighbors['SMILES'][index_max_neighbor_properties], path=optimistic_property_driven_molecules_generation_report_path + 'step_' + str(step + 1))
-                    df = pd.DataFrame({'SMILES': [current_smile], 'Property': [current_property], 'SELFIES': [top_k_neighbors['SELFIES'][index_max_neighbor_properties]]})
+                    plot_molecules(best_neighbor_smiles, path=optimistic_property_driven_molecules_generation_report_path + 'step_' + str(step + 1))
+                    df = pd.DataFrame({'SMILES': [current_smile], 'Property': [current_property], 'SELFIES': [best_neighbor_selfies]})
                     df = validate_smiles_in_pubchem(df) 
                     df.to_csv(csv_file_path, mode='a', header=False, index=False)  # Append new record
                 

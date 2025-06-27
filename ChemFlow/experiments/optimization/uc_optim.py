@@ -16,13 +16,13 @@ from pathlib import Path
 
 
 
-from experiments.utils.traversal_step import Traversal
-from src.utils.scores import *
-from experiments.utils.utils import partitionIndexes
+from ChemFlow.experiments.utils.traversal_step import Traversal
+from ChemFlow.src.utils.scores import *
+from ChemFlow.experiments.utils.utils import partitionIndexes
 
 PROTEIN_FILES = {
-    "1err": "data/raw/1err/1err.maps.fld",
-    "2iik": "data/raw/2iik/2iik.maps.fld",
+    "1err": "ChemFlow/data/raw/1err/1err.maps.fld",
+    "2iik": "ChemFlow/data/raw/2iik/2iik.maps.fld",
 }
 
 
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     else:
         df[args.prop] = np.nan # Add empty column if no unique smiles
 
-    output_path_dir = Path("data/interim/uc_optim") # Renamed for clarity
+    output_path_dir = Path("ChemFlow/data/interim/uc_optim") # Renamed for clarity
     output_path_dir.mkdir(parents=True, exist_ok=True)
     output_file_path = output_path_dir / f"{args.model_name}.csv"
     df.to_csv(output_file_path, index=False) # Save without index

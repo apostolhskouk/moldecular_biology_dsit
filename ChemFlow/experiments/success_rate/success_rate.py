@@ -22,11 +22,11 @@ from tap import Tap
 from rdkit import Chem
 
 
-from src.utils.scores import *
-from src.vae import load_vae
-from src.pinn.pde import load_wavepde
-from src.pinn import PropGenerator, VAEGenerator
-from src.predictor import Predictor
+from ChemFlow.src.utils.scores import *
+from ChemFlow.src.vae import load_vae
+from ChemFlow.src.pinn.pde import load_wavepde
+from ChemFlow.src.pinn import PropGenerator, VAEGenerator
+from ChemFlow.src.predictor import Predictor
 
 
 class Args(Tap):
