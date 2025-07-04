@@ -1,6 +1,6 @@
 # Navigating Chemical Space with Latent Flows
 
-This repository contains the code for reproducing and extending the paper [Navigating Chemical Space with Latent Flows](https://openreview.net/forum?id=aAaV4ZbQ9j), along with additional extensions and optimization methods.
+This repository contains the code for reproducing and extending the paper [Navigating Chemical Space with Latent Flows](https://openreview.net/forum?id=aAaV4ZbQ9j) for the Molecular Biology class of DSIT, along with additional extensions and optimization methods.
 
 ## Dependencies
 
