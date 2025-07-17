@@ -66,8 +66,6 @@ class LatentStepperMLP(nn.Module):
             layers.append(nn.Dropout(dropout_rate))
             current_dim = h_dim
         layers.append(nn.Linear(current_dim, latent_dim))
-        # Optional: Tanh to bound delta_z, but might limit step magnitude.
-        # layers.append(nn.Tanh()) # Output between -1 and 1, then scale externally if needed.
 
         self.mlp = nn.Sequential(*layers)
 
@@ -216,7 +214,6 @@ def main_train_latent_stepper():
 
     minimize_prop_actual = args.prop_name in MINIMIZE_PROPS
 
-    # Create model_init_kwargs from args.model_params namespace
     model_init_kwargs = {
         "learning_rate": args.model_params.learning_rate,
         "is_supervised": args.model_params.is_supervised,
