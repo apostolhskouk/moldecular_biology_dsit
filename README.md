@@ -23,7 +23,7 @@ conda activate dsit_chemflow
 
 ### Data and Checkpoints (Optional)
 
-To download the processed data, pre-trained models, intermediate results, and final results:
+To download the processed data, pre-trained models, intermediate results, and final results run:
 
 ```bash
 huggingface-cli download ApostolosK/chemflow-assets --include "ChemFlow/*" --local-dir .
